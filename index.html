@@ -2224,7 +2224,7 @@ function status(ok,msg){const t=document.getElementById('v80StatusText'),d=docum
 function info(msg){const e=document.getElementById('v81AutoSyncInfo');if(e)e.textContent='🔄 Auto Sync: '+msg}
 function initClient(){try{const c=cfg();if(!c.url||!c.key||!window.supabase){status(false,'Local Mode — Cloud Setup Required');return false}client=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});return true}catch(e){status(false,'Client error');return false}}
 async function session(){if(!client&&!initClient())throw new Error('Cloud configuration नहीं मिली।');const r=await client.auth.getSession();if(r.error)throw r.error;if(!r.data.session)throw new Error('Cloud login required');return r.data.session}
-function cloudKeys(){const a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!k||!k.startsWith(PREFIX)||k===CFG)continue;if(k.startsWith('nms_v82_sync_')||k.startsWith('nms_v82_conflict')||k.startsWith('nms_v129_conflicts')||k.startsWith('nms_v131_')||k==='nms_sync_deleted'||k==='nms_students_backup'||k==='nms_full_autobackup'||k==='nms_remember_login_v77')continue;a.push(k)}return a}
+function cloudKeys(){const a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!k||!k.startsWith(PREFIX)||k===CFG)continue;if(k.startsWith('nms_v82_sync_')||k.startsWith('nms_v82_conflict')||k.startsWith('nms_v129_conflicts')||k.startsWith('nms_v131_')||k==='nms_sync_deleted'||k==='nms_fee_device_id_v159'||k.startsWith('nms_fees_device_')||k==='nms_students_backup'||k==='nms_full_autobackup'||k==='nms_remember_login_v77')continue;a.push(k)}return a}
 function keyOf(o){if(!o||typeof o!=='object')return null;for(const k of ['id','_id','adm','admissionNo','admission','scholarNo','empId','username','key'])if(o[k]!==undefined&&o[k]!==null&&String(o[k])!=='')return k+'='+String(o[k]);return null}
 function merge(a,b){
  if(a===undefined||a===null)return clone(b); if(b===undefined||b===null)return clone(a); if(same(a,b))return clone(a);
@@ -2239,73 +2239,65 @@ function merge(a,b){
 }
 function parseMaybeJSON(v){
  if(typeof v!=='string')return v;
- const s=v.trim();
- if(!s)return v;
+ const s=v.trim(); if(!s)return v;
  if((s[0]==='{'&&s[s.length-1]==='}')||(s[0]==='['&&s[s.length-1]===']')){try{return JSON.parse(s)}catch(e){}}
  return v;
 }
-function feeNum(v){
- const n=Number(String(v??'').replace(/,/g,'').trim());
- return Number.isFinite(n)?n:null;
-}
-function feeTxnKey(t){
+function feeNum(v){const n=Number(String(v??'').replace(/,/g,'').trim());return Number.isFinite(n)?n:null}
+function feeTxnId(t){if(!t||typeof t!=='object')return null; if(t.id!=null&&String(t.id)!=='')return 'id:'+String(t.id); if(t.receipt!=null&&String(t.receipt)!=='')return 'receipt:'+String(t.receipt); return null}
+function feeTxnNormalize(t,studentId,sessionKey){
  if(!t||typeof t!=='object')return null;
- for(const k of ['id','receipt','receiptNo'])if(t[k]!=null&&String(t[k])!=='')return k+'='+String(t[k]);
- return null;
+ const id=String(t.id||('fee_'+studentId+'_'+String(t.receipt||'')+'_'+String(t.date||''))).trim();
+ const amount=feeNum(t.amount)??0, prev=feeNum(t.previousAmount)??0, cur=feeNum(t.currentAmount)??Math.max(0,amount-prev);
+ return {...t,id,studentId:String(t.studentId||studentId),session:String(t.session||sessionKey||feeSessionKey()),amount,previousAmount:prev,currentAmount:cur,receipt:String(t.receipt||id)};
 }
-function feeMergeArray(a,b){
- const m=new Map();
- for(const x of [...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])]){
-  const k=feeTxnKey(x)||('anon:'+JSON.stringify(x));
-  if(!m.has(k))m.set(k,clone(x));
-  else m.set(k,mergeFeeData(m.get(k),x));
+function feeMergeTransactions(a,b,studentId,sessionKey){
+ const out=new Map();
+ for(const raw of [...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])]){
+  const t=feeTxnNormalize(raw,studentId,sessionKey); if(!t)continue;
+  const key=feeTxnId(t)||('anon:'+JSON.stringify(t));
+  if(!out.has(key)){out.set(key,t);continue}
+  const old=out.get(key), oa=feeNum(old.amount)||0, na=feeNum(t.amount)||0;
+  const op=feeNum(old.previousAmount)||0,np=feeNum(t.previousAmount)||0, oc=feeNum(old.currentAmount)||0,nc=feeNum(t.currentAmount)||0;
+  out.set(key,{...old,...t,id:old.id||t.id,studentId:String(old.studentId||t.studentId||studentId),amount:Math.max(oa,na),previousAmount:Math.max(op,np),currentAmount:Math.max(oc,nc),receipt:String(old.receipt||t.receipt||old.id||t.id),date:String(old.date||t.date||''),mode:String(old.mode||t.mode||'Cash'),note:String(old.note||t.note||'')});
  }
- return [...m.values()];
+ return [...out.values()].sort((x,y)=>String(x.id).localeCompare(String(y.id)));
 }
-/*
- FINAL V159 FEE MERGE
- Fee balances are derived from session fee/openingDue + actual transactions.
- Therefore `paid` and `due` are NOT merge authorities: they may be stale cached
- values from an older build. Base fee/opening values are preserved with max()
- so an empty/zero device cannot erase a real amount from another device.
- Transactions are unioned by stable receipt/id.
-*/
-function mergeFeeData(a,b,path=''){
- a=parseMaybeJSON(a); b=parseMaybeJSON(b);
- if(a===undefined||a===null)return clone(b);
- if(b===undefined||b===null)return clone(a);
- if(same(a,b))return clone(a);
- if(Array.isArray(a)&&Array.isArray(b))return feeMergeArray(a,b);
- if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){
-  const o={};
-  for(const k of new Set([...Object.keys(a),...Object.keys(b)])){
-   const p=path?path+'.'+k:k;
-   o[k]=mergeFeeData(a[k],b[k],p);
-  }
-  /* Cached paid/due values are deliberately removed when both exist.
-     The UI calculates them from transactions, so stale copies must not win. */
-  if(Object.prototype.hasOwnProperty.call(o,'paid'))delete o.paid;
-  if(Object.prototype.hasOwnProperty.call(o,'due'))delete o.due;
-  return o;
+function feeMergeSession(a,b,sid,key){
+ a=(a&&typeof a==='object')?a:{}; b=(b&&typeof b==='object')?b:{};
+ const o={...a,...b};
+ for(const f of ['fee','openingDue','manualDue','tuition','exam','other','transport','fine']){
+  const av=feeNum(a[f]),bv=feeNum(b[f]); if(av!==null||bv!==null)o[f]=Math.max(av??0,bv??0);
  }
- const field=String(path).split('.').pop();
- const baseNumeric=new Set(['total','fee','openingDue','manualDue','tuition','exam','other','transport','fine']);
- if(baseNumeric.has(field)){
-  const na=feeNum(a),nb=feeNum(b);
-  if(na!==null&&nb!==null)return Math.max(na,nb);
-  if(na!==null)return na;
-  if(nb!==null)return nb;
+ delete o.paid; delete o.due;
+ o.txns=feeMergeTransactions(a.txns,b.txns,sid,key);
+ return o;
+}
+function feeMergeRecord(a,b,sid){
+ a=(a&&typeof a==='object')?a:{}; b=(b&&typeof b==='object')?b:{};
+ const o={...a,...b}, sessions={};
+ const keys=new Set([...Object.keys(a.sessions||{}),...Object.keys(b.sessions||{})]);
+ for(const k of keys)sessions[k]=feeMergeSession(a.sessions?.[k],b.sessions?.[k],sid,k);
+ if(!keys.size && (Array.isArray(a.txns)||Array.isArray(b.txns)))sessions[feeSessionKey()]=feeMergeSession({txns:a.txns},{txns:b.txns},sid,feeSessionKey());
+ o.sessions=sessions; delete o.txns; delete o.paid; delete o.due;
+ for(const f of ['total','fee','openingDue','manualDue','tuition','exam','other','transport','fine']){const av=feeNum(a[f]),bv=feeNum(b[f]);if(av!==null||bv!==null)o[f]=Math.max(av??0,bv??0)}
+ return o;
+}
+function normalizeAllFeeData(v){
+ v=parseMaybeJSON(v); if(!v||typeof v!=='object'||Array.isArray(v))return {};
+ const out={};
+ for(const [sid,raw] of Object.entries(v)){
+  if(!raw||typeof raw!=='object')continue;
+  out[sid]=feeMergeRecord({},raw,String(sid));
+  if(raw._migratedV3 && Array.isArray(raw.txns)&&raw.txns.length){const cur=feeSessionKey();out[sid].sessions[cur]=feeMergeSession(out[sid].sessions[cur],{txns:raw.txns},String(sid),cur)}
  }
- /* Transaction amounts are immutable facts for a given receipt/id. */
- if(field==='amount'||field==='previousAmount'||field==='currentAmount'){
-  const na=feeNum(a),nb=feeNum(b);
-  if(na!==null&&nb!==null)return Math.max(na,nb);
-  if(na!==null)return na;
-  if(nb!==null)return nb;
- }
- if(typeof a==='number'&&typeof b==='number'&&Number.isFinite(a)&&Number.isFinite(b))return Math.max(a,b);
- if((a===''||a===0||a==='0'||a===null||a===undefined)&&(b!==''&&b!==0&&b!=='0'&&b!==null&&b!==undefined))return clone(b);
- return clone(a);
+ return out;
+}
+function mergeFeeData(a,b){
+ a=normalizeAllFeeData(a); b=normalizeAllFeeData(b);
+ const out={}; const ids=new Set([...Object.keys(a),...Object.keys(b)]);
+ for(const sid of ids)out[sid]=feeMergeRecord(a[sid],b[sid],sid);
+ return out;
 }
 function setLocal(k,v){applying=true;try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){try{if(typeof freeLocalStorageForSync==='function')freeLocalStorageForSync();localStorage.setItem(k,JSON.stringify(v));return true}catch(e2){console.warn('sync local write failed',k,e2);return false}}finally{applying=false}}
 function refresh(keys){try{updateDash?.();renderStudents?.();renderClasses?.();renderTeachers?.();renderAttendance?.();renderMonthlyAttendance?.();renderFees?.();updateFeeDashboard?.();renderFeeStudentLedger?.();renderExamRows?.();renderExamList?.();}catch(e){}try{window.v77RenderUsers?.()}catch(e){}try{window.dispatchEvent(new CustomEvent('nms:cloudSyncUpdated',{detail:{keys}}))}catch(e){}}
@@ -2318,6 +2310,14 @@ function authInfo(){if(!client)return;client.auth.getSession().then(r=>{if(r.dat
 async function login(){try{if(!client&&!initClient())return;const email=(document.getElementById('v80Email')?.value||'').trim(),password=document.getElementById('v80Password')?.value||'';if(!email||!password)return alert('Cloud email और password भरें.');const r=await client.auth.signInWithPassword({email,password});if(r.error)throw r.error;status(true,'Connected + Logged in');info('syncing...');schedule('login');alert('Cloud Login successful. Auto Sync चालू है.')}catch(e){alert('Cloud Login failed: '+e.message)}}
 async function logout(){if(client)await client.auth.signOut();status(true,'Connected — Logged out');info('login required')}
 function schedule(reason){clearTimeout(timer);timer=setTimeout(()=>sync(reason),500)}
+function feeDeviceKey(){
+ try{
+  let id=localStorage.getItem('nms_fee_device_id_v159');
+  if(!id){id=(crypto?.randomUUID?.()||('dev_'+Date.now()+'_'+Math.random().toString(36).slice(2)));localStorage.setItem('nms_fee_device_id_v159',id)}
+  return 'nms_fees_device_'+String(id).replace(/[^a-zA-Z0-9_-]/g,'_');
+ }catch(e){return 'nms_fees_device_fallback'}
+}
+function feeSourceKeys(cloud){return [...cloud.keys()].filter(k=>k==='nms_fees'||k.startsWith('nms_fees_device_'))}
 async function sync(reason){
  if(busy)return; busy=true;
  try{
@@ -2383,7 +2383,7 @@ async function sync(reason){
     return true;
    });
   };
-  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_fees','nms_attendance','nms_marks'])];
+  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_fees','nms_attendance','nms_marks'])].filter(k=>k!=='nms_fee_device_id_v159'&&!k.startsWith('nms_fees_device_'));
   const changed=[]; let pushed=0;
   const stripStudents=v=>Array.isArray(v)?v.filter(x=>!studentDeleted(x)):v;
   const stripTeachers=v=>Array.isArray(v)?v.filter(x=>!teacherDeleted(x)):v;
@@ -2423,17 +2423,46 @@ async function sync(reason){
     const u=await client.from('school_kv').upsert({key:k,value:clone(clean),updated_at:new Date().toISOString()},{onConflict:'key'});
     if(u.error)throw u.error;pushed++;
    }else if(lv!==null&&cr){
-    let merged=(k==='nms_fees'?mergeFeeData(parseMaybeJSON(lv),parseMaybeJSON(cv)):merge(lv,cv));
+    let merged;
+    if(k==='nms_fees'){
+      /* Fee sync uses per-device append/merge sources. A shared nms_fees upsert can race:
+         device A may read 0, device B writes 7000, then A writes its stale 0. Each device
+         therefore owns one immutable-ish snapshot key; all snapshots are merged locally. */
+      const sources=[];
+      const legacyFee=cloud.get('nms_fees'); if(legacyFee)sources.push(legacyFee.value);
+      for(const fk of feeSourceKeys(cloud)){ if(fk!=='nms_fees')sources.push(cloud.get(fk)?.value) }
+      sources.push(lv);
+      merged=sources.reduce((acc,v)=>mergeFeeData(acc,v),{});
+    }else merged=merge(lv,cv);
     if(k==='nms_students')merged=stripStudents(merged);
     if(k==='nms_teachers')merged=stripTeachers(merged);
     if(k==='nms_users_v77')merged=sanitizeUsers(merged);
     if(!same(merged,lv)){if(setLocal(k,merged)){applyMemory(k,merged);changed.push(k)}}
-    if(!same(merged,cv)){
+    if(k==='nms_fees'){
+     const fk=feeDeviceKey();
+     const u=await client.from('school_kv').upsert({key:fk,value:clone(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
+     if(u.error)throw u.error;pushed++;
+     /* Keep local merged result; do not race-write the shared legacy nms_fees key. */
+    }else if(!same(merged,cv)){
      const u=await client.from('school_kv').upsert({key:k,value:clone(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
      if(u.error)throw u.error;pushed++;
     }
    }
   }
+
+  /* Final fee pass: aggregate every device fee snapshot plus legacy nms_fees,
+     update this device, then publish this device's complete merged snapshot. */
+  try{
+   const fr=await client.from('school_kv').select('key,value,updated_at').or('key.eq.nms_fees,key.like.nms_fees_device_%');
+   if(fr.error)throw fr.error;
+   const feeVals=(fr.data||[]).map(x=>x.value);
+   feeVals.push(read('nms_fees'));
+   const allFee=feeVals.reduce((acc,v)=>mergeFeeData(acc,v),{});
+   if(!same(allFee,read('nms_fees'))){if(setLocal('nms_fees',allFee)){applyMemory('nms_fees',allFee);changed.push('nms_fees')}}
+   const fk=feeDeviceKey();
+   const fu=await client.from('school_kv').upsert({key:fk,value:clone(allFee),updated_at:new Date().toISOString()},{onConflict:'key'});
+   if(fu.error)throw fu.error;
+  }catch(e){throw new Error('Fee sync failed: '+(e.message||e))}
 
   const finalUsers=sanitizeUsers(read('nms_users_v77'));
   if(Array.isArray(finalUsers)){
