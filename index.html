@@ -1,3 +1,4 @@
+<!-- V159 ONE-TIME SYNC FIX: single cloud writer + fee transaction merge -->
 <!DOCTYPE html>
 
 <html lang="en">
@@ -185,9 +186,9 @@ button,input,select{font:inherit}button{cursor:pointer;border:0}
 if(document.readyState!=='loading'){} else {}
 </script>
 
-<link rel="manifest" href="https://nikhatschooldigora-cloud.github.io/nikhat-school-management-v100/manifest.webmanifest">
-<link rel="icon" type="image/png" sizes="192x192" href="https://nikhatschooldigora-cloud.github.io/nikhat-school-management-v100/icon-192.png">
-<link rel="apple-touch-icon" sizes="192x192" href="https://nikhatschooldigora-cloud.github.io/nikhat-school-management-v100/icon-192.png">
+<link rel="manifest" href="./manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="./icon-192.png">
+<link rel="apple-touch-icon" sizes="192x192" href="./icon-192.png">
 <meta name="application-name" content="Nikhat School">
 <meta name="theme-color" content="#0b5cff">
 <meta name="mobile-web-app-capable" content="yes">
@@ -224,7 +225,6 @@ if(document.readyState!=='loading'){} else {}
 <style id="v98-css">
 .v98-summary{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;margin:14px 0}.v98-stat{padding:12px;border:1px solid #dbe2ea;border-radius:10px;background:#f8fafc}.v98-stat b{display:block;font-size:20px}.v98-tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.v98-tools button{white-space:nowrap}@media(max-width:700px){.v98-summary{grid-template-columns:repeat(2,1fr)}}
 </style>
-<!-- NMS V159 CLEAN SINGLE SYNC ENGINE BUILD 2026-09-13 -->
 </head>
 <body>
 <div class="app">
@@ -760,7 +760,7 @@ function loadXLSX(callback){
 }
 </script>
 <script>
-/* V145 FIX: expose student-write permission globally. V145 defined canStudentWrite inside the V77 IIFE, so Add Student raised "canStudentWrite is not defined" in the main app and V121 bulk handler. */
+/* V145 STUDENT PERMISSION COMPATIBILITY FIX: expose student-write permission globally. V145 defined canStudentWrite inside the V77 IIFE, so Add Student raised "canStudentWrite is not defined" in the main app and V121 bulk handler. */
 function canStudentWrite(){try{const raw=sessionStorage.getItem('nms_login_v77');const u=raw?JSON.parse(raw):null;return !!u&&['admin','principal','accountant'].includes(u.role)}catch(e){return false}}
 const CLASSES=['LKG','UKG','1','2','3','4','5','6','7','8','9','10'];
 let students=JSON.parse(localStorage.getItem('nms_students')||'[]');
@@ -2237,21 +2237,74 @@ function merge(a,b){
  if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){const o={};for(const k of new Set([...Object.keys(a),...Object.keys(b)]))o[k]=merge(a[k],b[k]);return o}
  return clone(a);
 }
-/* V159 FINAL SYNC REPAIR: expose the shared merge helper globally so any legacy
-   sync callback/handler still calling merge() cannot throw "merge is not defined". */
-window.nmsMerge = merge;
-window.merge = merge;
-function mergeFeeData(a,b){
- if(a===undefined||a===null)return clone(b); if(b===undefined||b===null)return clone(a);
- if(Array.isArray(a)&&Array.isArray(b)){
-  const key=t=>{if(!t||typeof t!=='object')return null;for(const k of ['id','receipt','receiptNo'])if(t[k]!=null&&String(t[k])!=='')return k+'='+String(t[k]);return null};
-  const m=new Map(); for(const x of a)m.set(key(x)||('anon:'+JSON.stringify(x)),x);
-  for(const x of b){const k=key(x)||('anon:'+JSON.stringify(x));m.set(k,m.has(k)?mergeFeeData(m.get(k),x):x)}
-  return [...m.values()].map(clone);
+function parseMaybeJSON(v){
+ if(typeof v!=='string')return v;
+ const s=v.trim();
+ if(!s)return v;
+ if((s[0]==='{'&&s[s.length-1]==='}')||(s[0]==='['&&s[s.length-1]===']')){try{return JSON.parse(s)}catch(e){}}
+ return v;
+}
+function feeNum(v){
+ const n=Number(String(v??'').replace(/,/g,'').trim());
+ return Number.isFinite(n)?n:null;
+}
+function feeTxnKey(t){
+ if(!t||typeof t!=='object')return null;
+ for(const k of ['id','receipt','receiptNo'])if(t[k]!=null&&String(t[k])!=='')return k+'='+String(t[k]);
+ return null;
+}
+function feeMergeArray(a,b){
+ const m=new Map();
+ for(const x of [...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])]){
+  const k=feeTxnKey(x)||('anon:'+JSON.stringify(x));
+  if(!m.has(k))m.set(k,clone(x));
+  else m.set(k,mergeFeeData(m.get(k),x));
  }
- if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){const o={};for(const k of new Set([...Object.keys(a),...Object.keys(b)]))o[k]=mergeFeeData(a[k],b[k]);return o;}
+ return [...m.values()];
+}
+/*
+ FINAL V159 FEE MERGE
+ Fee balances are derived from session fee/openingDue + actual transactions.
+ Therefore `paid` and `due` are NOT merge authorities: they may be stale cached
+ values from an older build. Base fee/opening values are preserved with max()
+ so an empty/zero device cannot erase a real amount from another device.
+ Transactions are unioned by stable receipt/id.
+*/
+function mergeFeeData(a,b,path=''){
+ a=parseMaybeJSON(a); b=parseMaybeJSON(b);
+ if(a===undefined||a===null)return clone(b);
+ if(b===undefined||b===null)return clone(a);
+ if(same(a,b))return clone(a);
+ if(Array.isArray(a)&&Array.isArray(b))return feeMergeArray(a,b);
+ if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){
+  const o={};
+  for(const k of new Set([...Object.keys(a),...Object.keys(b)])){
+   const p=path?path+'.'+k:k;
+   o[k]=mergeFeeData(a[k],b[k],p);
+  }
+  /* Cached paid/due values are deliberately removed when both exist.
+     The UI calculates them from transactions, so stale copies must not win. */
+  if(Object.prototype.hasOwnProperty.call(o,'paid'))delete o.paid;
+  if(Object.prototype.hasOwnProperty.call(o,'due'))delete o.due;
+  return o;
+ }
+ const field=String(path).split('.').pop();
+ const baseNumeric=new Set(['total','fee','openingDue','manualDue','tuition','exam','other','transport','fine']);
+ if(baseNumeric.has(field)){
+  const na=feeNum(a),nb=feeNum(b);
+  if(na!==null&&nb!==null)return Math.max(na,nb);
+  if(na!==null)return na;
+  if(nb!==null)return nb;
+ }
+ /* Transaction amounts are immutable facts for a given receipt/id. */
+ if(field==='amount'||field==='previousAmount'||field==='currentAmount'){
+  const na=feeNum(a),nb=feeNum(b);
+  if(na!==null&&nb!==null)return Math.max(na,nb);
+  if(na!==null)return na;
+  if(nb!==null)return nb;
+ }
  if(typeof a==='number'&&typeof b==='number'&&Number.isFinite(a)&&Number.isFinite(b))return Math.max(a,b);
- if((a===''||a===0||a===null||a===undefined)&&(b!==''&&b!==0&&b!==null&&b!==undefined))return clone(b);
+ if((a===''||a===0||a==='0'||a===null||a===undefined)&&(b!==''&&b!==0&&b!=='0'&&b!==null&&b!==undefined))return clone(b);
  return clone(a);
 }
 function setLocal(k,v){applying=true;try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){try{if(typeof freeLocalStorageForSync==='function')freeLocalStorageForSync();localStorage.setItem(k,JSON.stringify(v));return true}catch(e2){console.warn('sync local write failed',k,e2);return false}}finally{applying=false}}
@@ -2370,7 +2423,7 @@ async function sync(reason){
     const u=await client.from('school_kv').upsert({key:k,value:clone(clean),updated_at:new Date().toISOString()},{onConflict:'key'});
     if(u.error)throw u.error;pushed++;
    }else if(lv!==null&&cr){
-    let merged=(k==='nms_fees'?mergeFeeData(lv,cv):window.nmsMerge(lv,cv));
+    let merged=(k==='nms_fees'?mergeFeeData(parseMaybeJSON(lv),parseMaybeJSON(cv)):merge(lv,cv));
     if(k==='nms_students')merged=stripStudents(merged);
     if(k==='nms_teachers')merged=stripTeachers(merged);
     if(k==='nms_users_v77')merged=sanitizeUsers(merged);
@@ -2409,7 +2462,7 @@ async function sync(reason){
   }
   if(changed.length)refresh(changed);
   status(true,'Connected + Logged in');
-  info('V159 • synced '+rows.length+' cloud items'+(pushed?' • '+pushed+' update(s) pushed':'')+' • no page refresh');
+  info('V148 • synced '+rows.length+' cloud items'+(pushed?' • '+pushed+' update(s) pushed':'')+' • no page refresh');
  }catch(e){
   console.warn('V146 sync:',e); status(false,'Connected + Logged in • Sync Error');
   info('sync error • '+String(e.message||e).slice(0,140));
@@ -3448,9 +3501,6 @@ if ('serviceWorker' in navigator) {
   });
 }
 </script>
-
-<!-- V159 CLEAN BUILD: legacy V145 cloud bootstrap removed. Main V146 sync engine is the only automatic sync writer. -->
-
 
 <style id="v156-role-permission-safe">
 .v156-hidden{display:none!important}.v156-disabled{pointer-events:none!important;opacity:.6!important}
