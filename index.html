@@ -1256,7 +1256,7 @@ function showPage(p){
     else if(p==='attendance')initAttendance();
     else if(p==='homework')window.v74Render&&window.v74Render();
     else if(p==='exams'){populateReportStudents();renderExamRows();populatePerformanceStudents()}
-    else if(p==='fees'){try{window.nmsFeePullNow?.().catch(()=>{});}catch(e){} renderFees();updateFeeDashboard();populateFeeStudents();}
+    else if(p==='fees'){renderFees();updateFeeDashboard();populateFeeStudents();}
     else if(p==='v65'){initV65();} else if(p==='reports'){initV69Reports();}
     else if(p==='certificates')initCertificates();
     else if(p==='backup'){updateBackupStatus();} else if(p==='systemHealth'){window.initV100Health&&window.initV100Health();}
@@ -2223,7 +2223,7 @@ function status(ok,msg){const t=document.getElementById('v80StatusText'),d=docum
 function info(msg){const e=document.getElementById('v81AutoSyncInfo');if(e)e.textContent='🔄 Auto Sync: '+msg}
 function initClient(){try{const c=cfg();if(!c.url||!c.key||!window.supabase){status(false,'Local Mode — Cloud Setup Required');return false}client=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});return true}catch(e){status(false,'Client error');return false}}
 async function session(){if(!client&&!initClient())throw new Error('Cloud configuration नहीं मिली।');const r=await client.auth.getSession();if(r.error)throw r.error;if(!r.data.session)throw new Error('Cloud login required');return r.data.session}
-function cloudKeys(){const a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!k||!k.startsWith(PREFIX)||k===CFG)continue;if(k.startsWith('nms_v82_sync_')||k.startsWith('nms_v82_conflict')||k.startsWith('nms_v129_conflicts')||k.startsWith('nms_v131_')||k.startsWith('nms_fee_record_v159_')||k==='nms_sync_deleted'||k==='nms_students_backup'||k==='nms_full_autobackup'||k==='nms_remember_login_v77')continue;a.push(k)}return a}
+function cloudKeys(){const a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!k||!k.startsWith(PREFIX)||k===CFG)continue;if(k.startsWith('nms_v82_sync_')||k.startsWith('nms_v82_conflict')||k.startsWith('nms_v129_conflicts')||k.startsWith('nms_v131_')||k==='nms_sync_deleted'||k==='nms_students_backup'||k==='nms_full_autobackup'||k==='nms_remember_login_v77')continue;a.push(k)}return a}
 function keyOf(o){if(!o||typeof o!=='object')return null;for(const k of ['id','_id','adm','admissionNo','admission','scholarNo','empId','username','key'])if(o[k]!==undefined&&o[k]!==null&&String(o[k])!=='')return k+'='+String(o[k]);return null}
 function merge(a,b){
  if(a===undefined||a===null)return clone(b); if(b===undefined||b===null)return clone(a); if(same(a,b))return clone(a);
@@ -2237,50 +2237,17 @@ function merge(a,b){
  return clone(a);
 }
 function mergeFeeData(a,b){
-  if(a==null)return clone(b); if(b==null)return clone(a);
-  const out=clone(a);
-  const keys=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);
-  for(const sid of keys){
-    const A=(a&&a[sid]&&typeof a[sid]==='object'&&!Array.isArray(a[sid]))?a[sid]:{};
-    const B=(b&&b[sid]&&typeof b[sid]==='object'&&!Array.isArray(b[sid]))?b[sid]:{};
-    const R=clone(A);
-    // Preserve every session and every receipt from both devices.
-    R.sessions={...(A.sessions||{})};
-    for(const sk of new Set([...Object.keys(A.sessions||{}),...Object.keys(B.sessions||{})])){
-      const sa=(A.sessions||{})[sk]||{}, sb=(B.sessions||{})[sk]||{};
-      const sr={...clone(sa)};
-      for(const k of new Set([...Object.keys(sa),...Object.keys(sb)])){
-        if(k==='txns'){
-          const aa=Array.isArray(sa.txns)?sa.txns:[], bb=Array.isArray(sb.txns)?sb.txns:[];
-          const m=new Map();
-          for(const t of [...aa,...bb]){if(!t||typeof t!=='object')continue;const id=String(t.id||t.receipt||JSON.stringify(t));if(!m.has(id))m.set(id,clone(t));else m.set(id,merge(m.get(id),t));}
-          sr.txns=[...m.values()];
-        }else if(typeof sa[k]==='number'||typeof sb[k]==='number'){
-          const av=Number(sa[k]||0),bv=Number(sb[k]||0);
-          // Fee totals/due values are monotonic in this legacy schema; never let 0 erase a real value.
-          sr[k]=Math.max(av,bv);
-        }else if(sa[k]===undefined)sr[k]=clone(sb[k]);
-      }
-      R.sessions[sk]=sr;
-    }
-    // Also preserve legacy top-level transactions.
-    const aa=Array.isArray(A.txns)?A.txns:[], bb=Array.isArray(B.txns)?B.txns:[];
-    const tm=new Map(); for(const t of [...aa,...bb]){if(!t||typeof t!=='object')continue;const id=String(t.id||t.receipt||JSON.stringify(t));if(!tm.has(id))tm.set(id,clone(t));}
-    R.txns=[...tm.values()];
-    for(const k of ['total','manualDue','openingDue','fee']) if(typeof A[k]==='number'||typeof B[k]==='number') R[k]=Math.max(Number(A[k]||0),Number(B[k]||0));
-    for(const k of Object.keys(B)) if(R[k]===undefined)R[k]=clone(B[k]);
-    out[sid]=R;
-  }
-  return out;
-}
-function applyMemory(k,v){
-  try{
-    if(k==='nms_students'&&Array.isArray(v)) students=v;
-    else if(k==='nms_teachers'&&Array.isArray(v)) teachers=v;
-    else if(k==='nms_fees'&&v&&typeof v==='object'&&!Array.isArray(v)) fees=v;
-    else if(k==='nms_attendance'&&v&&typeof v==='object') attendance=v;
-    else if(k==='nms_marks'&&v&&typeof v==='object') marks=v;
-  }catch(e){console.warn('sync memory update failed',k,e)}
+ if(a===undefined||a===null)return clone(b); if(b===undefined||b===null)return clone(a);
+ if(Array.isArray(a)&&Array.isArray(b)){
+  const key=t=>{if(!t||typeof t!=='object')return null;for(const k of ['id','receipt','receiptNo'])if(t[k]!=null&&String(t[k])!=='')return k+'='+String(t[k]);return null};
+  const m=new Map(); for(const x of a)m.set(key(x)||('anon:'+JSON.stringify(x)),x);
+  for(const x of b){const k=key(x)||('anon:'+JSON.stringify(x));m.set(k,m.has(k)?mergeFeeData(m.get(k),x):x)}
+  return [...m.values()].map(clone);
+ }
+ if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){const o={};for(const k of new Set([...Object.keys(a),...Object.keys(b)]))o[k]=mergeFeeData(a[k],b[k]);return o;}
+ if(typeof a==='number'&&typeof b==='number'&&Number.isFinite(a)&&Number.isFinite(b))return Math.max(a,b);
+ if((a===''||a===0||a===null||a===undefined)&&(b!==''&&b!==0&&b!==null&&b!==undefined))return clone(b);
+ return clone(a);
 }
 function setLocal(k,v){applying=true;try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){try{if(typeof freeLocalStorageForSync==='function')freeLocalStorageForSync();localStorage.setItem(k,JSON.stringify(v));return true}catch(e2){console.warn('sync local write failed',k,e2);return false}}finally{applying=false}}
 function refresh(keys){try{updateDash?.();renderStudents?.();renderClasses?.();renderTeachers?.();renderAttendance?.();renderMonthlyAttendance?.();renderFees?.();updateFeeDashboard?.();renderFeeStudentLedger?.();renderExamRows?.();renderExamList?.();}catch(e){}try{window.v77RenderUsers?.()}catch(e){}try{window.dispatchEvent(new CustomEvent('nms:cloudSyncUpdated',{detail:{keys}}))}catch(e){}}
@@ -2290,52 +2257,7 @@ function shareCloudSetup(){try{const c=cfg();if(!c.url||!c.key)return alert('प
 function saveCfg(){const url=(document.getElementById('v80Url')?.value||'').trim().replace(/\/$/,'');const key=(document.getElementById('v80Key')?.value||'').trim();if(!url||!key)return alert('Supabase Project URL और anon/publishable key भरें.');localStorage.setItem(CFG,JSON.stringify({url,key}));initClient();status(true,'Connected');return true}
 async function testConnection(){try{await session();status(true,'Connected + Logged in');return true}catch(e){status(false,e.message||'Connection failed');return false}}
 function authInfo(){if(!client)return;client.auth.getSession().then(r=>{if(r.data?.session){status(true,'Connected + Logged in');info('active • '+new Date().toLocaleTimeString())}else status(true,'Connected — Login required')}).catch(()=>status(false,'Connection failed'))}
-async function bootstrapCloudToEmptyDevice(){
-  /* V159 RECOVERY BOOTSTRAP: read-only cloud hydration for a device whose local
-     school data was cleared. It NEVER uploads the empty/local state to cloud. */
-  await session();
-  const r=await client.from('school_kv').select('key,value,updated_at').order('key');
-  if(r.error)throw r.error;
-  const rows=r.data||[];
-  if(!rows.length)throw new Error('Cloud database में school data नहीं मिला.');
-  const core=['nms_students','nms_teachers','nms_users_v77','nms_attendance','nms_marks','nms_fees'];
-  let applied=[];
-  applying=true;
-  try{
-    for(const key of core){
-      const row=rows.find(x=>x.key===key); if(!row)continue;
-      let cloudVal=row.value; try{if(typeof cloudVal==='string')cloudVal=JSON.parse(cloudVal)}catch(e){}
-      if(key==='nms_students' && Array.isArray(cloudVal) && cloudVal.length>0){
-        localStorage.setItem(key,JSON.stringify(cloudVal)); students=cloudVal; applied.push(key);
-      }else if(key==='nms_teachers' && Array.isArray(cloudVal) && cloudVal.length>0){
-        localStorage.setItem(key,JSON.stringify(cloudVal)); teachers=cloudVal; applied.push(key);
-      }else if(key==='nms_fees' && cloudVal && typeof cloudVal==='object' && !Array.isArray(cloudVal) && Object.keys(cloudVal).length){
-        localStorage.setItem(key,JSON.stringify(cloudVal)); fees=cloudVal; applied.push(key);
-      }else if((key==='nms_users_v77'||key==='nms_attendance'||key==='nms_marks') && cloudVal!==null && cloudVal!==undefined){
-        localStorage.setItem(key,JSON.stringify(cloudVal));
-        if(key==='nms_attendance')attendance=cloudVal; if(key==='nms_marks')marks=cloudVal;
-        applied.push(key);
-      }
-    }
-    /* Also hydrate dedicated per-student fee records without requiring the
-       normal sync cycle to have already run on this freshly-cleared device. */
-    const feeRows=rows.filter(x=>String(x.key||'').startsWith('nms_fee_record_v159_'));
-    if(feeRows.length){
-      const current=(fees&&typeof fees==='object'&&!Array.isArray(fees))?fees:{};
-      for(const row of feeRows){
-        let rec=row.value; try{if(typeof rec==='string')rec=JSON.parse(rec)}catch(e){rec=null}
-        if(!rec||typeof rec!=='object')continue;
-        const sid=String(rec.studentId||String(row.key).slice('nms_fee_record_v159_'.length));
-        current[sid]=typeof mergeRec==='function'?mergeRec(current[sid],rec):rec;
-      }
-      localStorage.setItem('nms_fees',JSON.stringify(current)); fees=current; applied.push('nms_fee_record_v159_*');
-    }
-  }finally{applying=false}
-  refresh(applied);
-  return applied;
-}
-
-async function login(){try{if(!client&&!initClient())return;const email=(document.getElementById('v80Email')?.value||'').trim(),password=document.getElementById('v80Password')?.value||'';if(!email||!password)return alert('Cloud email और password भरें.');const r=await client.auth.signInWithPassword({email,password});if(r.error)throw r.error;status(true,'Connected + Logged in');info('cloud data check...');let hydrated=[];try{hydrated=await bootstrapCloudToEmptyDevice()}catch(e){console.warn('Cloud bootstrap:',e)}info('syncing...');schedule('login');try{await window.nmsFeePullNow?.()}catch(e){}alert('Cloud Login successful. '+(hydrated.length?'Cloud data इस device में सुरक्षित रूप से load किया गया. ':'')+'Auto Sync चालू है.')}catch(e){alert('Cloud Login failed: '+e.message)}}
+async function login(){try{if(!client&&!initClient())return;const email=(document.getElementById('v80Email')?.value||'').trim(),password=document.getElementById('v80Password')?.value||'';if(!email||!password)return alert('Cloud email और password भरें.');const r=await client.auth.signInWithPassword({email,password});if(r.error)throw r.error;status(true,'Connected + Logged in');info('syncing...');schedule('login');alert('Cloud Login successful. Auto Sync चालू है.')}catch(e){alert('Cloud Login failed: '+e.message)}}
 async function logout(){if(client)await client.auth.signOut();status(true,'Connected — Logged out');info('login required')}
 function schedule(reason){clearTimeout(timer);timer=setTimeout(()=>sync(reason),500)}
 async function sync(reason){
@@ -2345,165 +2267,158 @@ async function sync(reason){
   const r=await client.from('school_kv').select('key,value,updated_at').order('key');
   if(r.error)throw r.error;
   const rows=r.data||[], cloud=new Map(rows.map(x=>[x.key,x]));
+  /* FINAL SAFE RECOVERY: hydrate an empty student list from the already-read cloud
+     before any local state can be pushed upstream. */
+  const localStudents0=read('nms_students'), cloudStudents0=cloud.get('nms_students')?.value;
+  if(Array.isArray(localStudents0)&&localStudents0.length===0&&Array.isArray(cloudStudents0)&&cloudStudents0.length>0){
+   const hydrateKeys=['nms_students','nms_teachers','nms_users_v77','nms_attendance','nms_marks','nms_fees'];
+   for(const hk of hydrateKeys){const hr=cloud.get(hk);if(!hr)continue;let hv=hr.value;try{if(typeof hv==='string')hv=JSON.parse(hv)}catch(e){}
+    if(hk==='nms_students'&&Array.isArray(hv)&&hv.length){setLocal(hk,hv);applyMemory(hk,hv)}
+    else if(hk==='nms_teachers'&&Array.isArray(hv)&&hv.length){setLocal(hk,hv);applyMemory(hk,hv)}
+    else if(hk==='nms_fees'&&hv&&typeof hv==='object'&&!Array.isArray(hv)){setLocal(hk,hv);applyMemory(hk,hv)}
+    else if((hk==='nms_users_v77'||hk==='nms_attendance'||hk==='nms_marks')&&hv!=null){setLocal(hk,hv);applyMemory(hk,hv)}
+   }
+  }
   let localT={}; try{localT=JSON.parse(localStorage.getItem('nms_sync_deleted')||'{}')||{}}catch(e){localT={}};
   let cloudT={};
-  if(cloud.has('nms_sync_deleted')){try{const raw=cloud.get('nms_sync_deleted').value; cloudT=typeof raw==='string'?JSON.parse(raw)||{}:(raw||{})}catch(e){cloudT={}}}
+  if(cloud.has('nms_sync_deleted')){
+   try{const raw=cloud.get('nms_sync_deleted').value; cloudT=typeof raw==='string'?JSON.parse(raw)||{}:(raw||{})}catch(e){cloudT={}}
+  }
   const tomb={...cloudT};
-  for(const [k,v] of Object.entries(localT)){if((Number(v?.deletedAt)||0)>(Number(tomb[k]?.deletedAt)||0))tomb[k]=v;}
+  for(const [k,v] of Object.entries(localT)){
+   if((Number(v?.deletedAt)||0)>(Number(tomb[k]?.deletedAt)||0))tomb[k]=v;
+  }
   try{localStorage.setItem('nms_sync_deleted',JSON.stringify(tomb))}catch(e){}
+  const tu=await client.from('school_kv').upsert({key:'nms_sync_deleted',value:tomb,updated_at:new Date().toISOString()},{onConflict:'key'});
+  if(tu.error)throw tu.error;
+
   const deletedStudents=Object.values(tomb).filter(x=>x&&x.type==='student');
   const deletedTeachers=Object.values(tomb).filter(x=>x&&x.type==='teacher');
   const norm=v=>String(v??'').trim().toLowerCase();
-  const studentDeleted=x=>deletedStudents.some(d=>{if(d.id!=null&&String(d.id)===String(x?.id))return true;if(norm(d.adm)&&norm(d.adm)===norm(x?.adm||x?.admissionNo))return true;return norm(d.name)&&norm(d.name)===norm(x?.name)&&norm(d.cls)===norm(x?.cls)&&norm(d.mobile)===norm(x?.mobile)});
-  const teacherDeleted=x=>deletedTeachers.some(d=>{if(d.id!=null&&String(d.id)!==''&&String(d.id)===String(x?.id))return true;if(d.id!=null&&String(d.id)!=='')return false;if(norm(d.empId)&&norm(d.empId)===norm(x?.empId))return true;if(norm(d.email)&&norm(d.email)===norm(x?.email))return true;return norm(d.name)&&norm(d.name)===norm(x?.name)&&norm(d.mobile)===norm(x?.mobile)});
+  const studentDeleted=x=>deletedStudents.some(d=>{
+    if(d.id!=null&&String(d.id)===String(x?.id))return true;
+    if(norm(d.adm)&&norm(d.adm)===norm(x?.adm||x?.admissionNo))return true;
+    return norm(d.name)&&norm(d.name)===norm(x?.name)&&norm(d.cls)===norm(x?.cls)&&norm(d.mobile)===norm(x?.mobile);
+  });
+  const teacherDeleted=x=>deletedTeachers.some(d=>{
+    if(d.id!=null&&String(d.id)!==''&&String(d.id)===String(x?.id))return true;
+    if(d.id!=null&&String(d.id)!=='')return false;
+    if(norm(d.empId)&&norm(d.empId)===norm(x?.empId))return true;
+    if(norm(d.email)&&norm(d.email)===norm(x?.email))return true;
+    return norm(d.name)&&norm(d.name)===norm(x?.name)&&norm(d.mobile)===norm(x?.mobile);
+  });
+  const sanitizeUsers=v=>{
+   if(!Array.isArray(v))return v;
+   const activeList=stripStudents(read('nms_students'));
+   const active=new Set((Array.isArray(activeList)?activeList:[]).map(s=>String(s?.id||'')));
+   return v.filter(u=>{
+    if(!u||typeof u!=='object')return true;
+    if(u.role==='student')return active.has(String(u.studentId||''));
+    if(u.role==='guardian'){
+     const ids=(Array.isArray(u.childIds)?u.childIds:[]).map(String).filter(id=>active.has(id));
+     if(!ids.length&&u.guardianStudentId&&active.has(String(u.guardianStudentId)))ids.push(String(u.guardianStudentId));
+     if(!ids.length)return false;
+     u.childIds=[...new Set(ids)];
+     u.guardianStudentId=u.childIds[0]||'';
+     return true;
+    }
+    return true;
+   });
+  };
+  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_fees','nms_attendance','nms_marks'])];
+  const changed=[]; let pushed=0;
   const stripStudents=v=>Array.isArray(v)?v.filter(x=>!studentDeleted(x)):v;
   const stripTeachers=v=>Array.isArray(v)?v.filter(x=>!teacherDeleted(x)):v;
-  const sanitizeUsers=v=>{if(!Array.isArray(v))return v;const activeList=stripStudents(read('nms_students'));const active=new Set((Array.isArray(activeList)?activeList:[]).map(s=>String(s?.id||'')));return v.filter(u=>{if(!u||typeof u!=='object')return true;if(u.role==='student')return active.has(String(u.studentId||''));if(u.role==='guardian'){const ids=(Array.isArray(u.childIds)?u.childIds:[]).map(String).filter(id=>active.has(id));if(!ids.length&&u.guardianStudentId&&active.has(String(u.guardianStudentId)))ids.push(String(u.guardianStudentId));if(!ids.length)return false;u.childIds=[...new Set(ids)];u.guardianStudentId=u.childIds[0]||'';return true}return true})};
-  const writes=[]; const changed=[];
-  /* V159 FEE SYNC FIX v2: one dedicated durable fee snapshot row.
-     Previous Due / Current Due / Total Due are derived from the per-student
-     session records in nms_fees. This row is merged, never replaced. */
-  const FEE_SYNC_KEY='nms_fee_sync_v159';
-  const feeLocal=(read('nms_fees')&&typeof read('nms_fees')==='object'&&!Array.isArray(read('nms_fees')))?read('nms_fees'):{};
-  let feeCloudValue=null;
-  const feeDedicated=cloud.get(FEE_SYNC_KEY);
-  if(feeDedicated){
-    try{feeCloudValue=typeof feeDedicated.value==='string'?JSON.parse(feeDedicated.value):feeDedicated.value}catch(e){feeCloudValue=null}
-  }
-  /* Migrate data from the older cloud nms_fees row if present. */
-  const feeLegacy=cloud.get('nms_fees');
-  if(feeLegacy&&feeLegacy.value&&typeof feeLegacy.value==='object'&&!Array.isArray(feeLegacy.value)){
-    feeCloudValue=feeCloudValue&&typeof feeCloudValue==='object'
-      ?mergeFeeData(feeCloudValue,feeLegacy.value)
-      :feeLegacy.value;
-  }
-  let feeMerged=mergeFeeData(feeLocal,feeCloudValue||{});
-  let feeChanged=false;
-  if(!same(feeMerged,feeLocal)){
-    setLocal('nms_fees',feeMerged);
-    applyMemory('nms_fees',feeMerged);
-    feeChanged=true;
-  }
-  const feeCloudParsed=typeof feeDedicated?.value==='string'
-    ?(()=>{try{return JSON.parse(feeDedicated.value)}catch(e){return null}})()
-    :feeDedicated?.value;
-  if(!same(feeMerged,feeCloudParsed)){
-    writes.push({key:FEE_SYNC_KEY,value:clone(feeMerged),updated_at:new Date().toISOString()});
-  }
-  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_attendance','nms_marks'])]
-    .filter(k=>k!=='nms_sync_deleted'&&k!=='nms_fees'&&k!==FEE_SYNC_KEY&&!String(k).startsWith('nms_fee_record_v159_'));
+
   for(const k of keys){
-   const lv0=read(k), cr=cloud.get(k), cv=cr?cr.value:null; let lv=lv0;
-   if(k==='nms_students')lv=stripStudents(lv); else if(k==='nms_teachers')lv=stripTeachers(lv); else if(k==='nms_users_v77')lv=sanitizeUsers(lv);
-   if(!same(lv,lv0)&&setLocal(k,lv)){applyMemory(k,lv);changed.push(k)}
-   let merged;
-   if(lv===null&&cr)merged=clone(cv); else if(lv!==null&&!cr)merged=clone(lv); else if(lv!==null&&cr)merged=(k==='nms_fees'?mergeFeeData(lv,cv):merge(lv,cv)); else continue;
-   if(k==='nms_students')merged=stripStudents(merged); else if(k==='nms_teachers')merged=stripTeachers(merged); else if(k==='nms_users_v77')merged=sanitizeUsers(merged);
-   if(!same(merged,lv)&&setLocal(k,merged)){applyMemory(k,merged);changed.push(k)}
-   if(!same(merged,cv))writes.push({key:k,value:clone(merged),updated_at:new Date().toISOString()});
+   if(k==='nms_sync_deleted')continue;
+   const cr=cloud.get(k);
+   const originalLv=read(k);
+   let lv=originalLv, cv=cr?cr.value:null;
+   // V140: apply cloud tombstones to the existing device immediately.
+   // V138 filtered lv before comparison, so the remote device never wrote the
+   // filtered list to localStorage/memory and its UI kept showing the deleted student.
+   if(k==='nms_students'){
+    const filteredLv=stripStudents(lv), filteredCv=stripStudents(cv);
+    if(!same(filteredLv,lv)){
+     if(setLocal(k,filteredLv)){applyMemory(k,filteredLv);changed.push(k)}
+    }
+    lv=filteredLv; cv=filteredCv;
+   }else if(k==='nms_teachers'){
+    const filteredLv=stripTeachers(lv), filteredCv=stripTeachers(cv);
+    if(!same(filteredLv,lv)){
+     if(setLocal(k,filteredLv)){applyMemory(k,filteredLv);changed.push(k)}
+    }
+    lv=filteredLv; cv=filteredCv;
+   }
+   else if(k==='nms_users_v77'){
+    const filteredLv=sanitizeUsers(lv), filteredCv=sanitizeUsers(cv);
+    if(!same(filteredLv,lv)){
+     if(setLocal(k,filteredLv)){changed.push(k)}
+    }
+    lv=filteredLv; cv=filteredCv;
+   }
+   if(lv===null&&cr){
+    if(setLocal(k,cv)){applyMemory(k,cv);changed.push(k)}
+   }else if(lv!==null&&!cr){
+    const clean=k==='nms_students'?stripStudents(lv):(k==='nms_teachers'?stripTeachers(lv):lv);
+    const u=await client.from('school_kv').upsert({key:k,value:clone(clean),updated_at:new Date().toISOString()},{onConflict:'key'});
+    if(u.error)throw u.error;pushed++;
+   }else if(lv!==null&&cr){
+    let merged=(k==='nms_fees'?mergeFeeData(lv,cv):merge(lv,cv));
+    if(k==='nms_students')merged=stripStudents(merged);
+    if(k==='nms_teachers')merged=stripTeachers(merged);
+    if(k==='nms_users_v77')merged=sanitizeUsers(merged);
+    if(!same(merged,lv)){if(setLocal(k,merged)){applyMemory(k,merged);changed.push(k)}}
+    if(!same(merged,cv)){
+     const u=await client.from('school_kv').upsert({key:k,value:clone(merged),updated_at:new Date().toISOString()},{onConflict:'key'});
+     if(u.error)throw u.error;pushed++;
+    }
+   }
   }
-  if(!same(tomb,cloudT)||!cloud.has('nms_sync_deleted'))writes.push({key:'nms_sync_deleted',value:tomb,updated_at:new Date().toISOString()});
-  if(writes.length){const u=await client.from('school_kv').upsert(writes,{onConflict:'key'});if(u.error)throw u.error;}
-  if(changed.length||feeChanged)refresh([...new Set([...(changed||[]),'nms_fees'].filter(Boolean))]);
+
+  const finalUsers=sanitizeUsers(read('nms_users_v77'));
+  if(Array.isArray(finalUsers)){
+   const cu=cloud.get('nms_users_v77'), cloudUsers=cu?sanitizeUsers(cu.value):null;
+   if(!same(finalUsers,cloudUsers)){
+    const u=await client.from('school_kv').upsert({key:'nms_users_v77',value:clone(finalUsers),updated_at:new Date().toISOString()},{onConflict:'key'});
+    if(u.error)throw u.error;pushed++;
+   }
+   if(!same(finalUsers,read('nms_users_v77'))){if(setLocal('nms_users_v77',finalUsers))changed.push('nms_users_v77')}
+  }
+  const finalStudents=stripStudents(read('nms_students'));
+  if(Array.isArray(finalStudents)){
+   const cs=cloud.get('nms_students'), cloudStudents=cs?stripStudents(cs.value):null;
+   if(!same(finalStudents,cloudStudents)){
+    const u=await client.from('school_kv').upsert({key:'nms_students',value:clone(finalStudents),updated_at:new Date().toISOString()},{onConflict:'key'});
+    if(u.error)throw u.error;pushed++;
+   }
+  }
+  const finalTeachers=stripTeachers(read('nms_teachers'));
+  if(Array.isArray(finalTeachers)){
+   const ct=cloud.get('nms_teachers'), cloudTeachers=ct?stripTeachers(ct.value):null;
+   if(!same(finalTeachers,cloudTeachers)){
+    const u=await client.from('school_kv').upsert({key:'nms_teachers',value:clone(finalTeachers),updated_at:new Date().toISOString()},{onConflict:'key'});
+    if(u.error)throw u.error;pushed++;
+   }
+  }
+  if(changed.length)refresh(changed);
   status(true,'Connected + Logged in');
-  info('V159 SAFE MERGE + FEE MERGE • '+(reason||'auto')+' • '+writes.length+' cloud row(s) updated');
- }catch(e){console.warn('V159 SAFE MERGE sync:',e);status(true,'Connected + Logged in');info('sync paused • '+String(e.message||e).slice(0,160));}
- finally{busy=false}
+  info('V148 • synced '+rows.length+' cloud items'+(pushed?' • '+pushed+' update(s) pushed':'')+' • no page refresh');
+ }catch(e){
+  console.warn('V146 sync:',e); status(false,'Connected + Logged in • Sync Error');
+  info('sync error • '+String(e.message||e).slice(0,140));
+ }finally{busy=false}
 }
+function applyMemory(k,v){try{if(k==='nms_students'){students=Array.isArray(v)?v:[];normalizeStudents?.()}else if(k==='nms_teachers'){teachers=Array.isArray(v)?v:[]}else if(k==='nms_fees'){fees=v&&typeof v==='object'&&!Array.isArray(v)?v:{}}else if(k==='nms_attendance'){attendance=v&&typeof v==='object'&&!Array.isArray(v)?v:{}}else if(k==='nms_marks'){marks=v&&typeof v==='object'&&!Array.isArray(v)?v:{}}}catch(e){}}
 async function upload(){return sync('manual upload')}
 async function download(){try{await session();const r=await client.from('school_kv').select('key,value,updated_at').order('key');if(r.error)throw r.error;if(!r.data?.length)return alert('Cloud database खाली है.');if(!confirm('Cloud data को इस device में replace करना है?'))return;applying=true;try{for(const x of r.data){if(x.key===CFG)continue;localStorage.setItem(x.key,typeof x.value==='string'?x.value:JSON.stringify(x.value))}}finally{applying=false}location.reload()}catch(e){alert('Download failed: '+e.message)}}
-async function initializeCloud(){try{await session();const keys=cloudKeys();let n=0;for(const k of keys){const lv=read(k);if(lv!==null){const r=await client.from('school_kv').upsert({key:k,value:clone(lv),updated_at:new Date().toISOString()},{onConflict:'key'});if(r.error)throw r.error;n++}}status(true,'Cloud Initialized • '+n+' items');info('cloud initialized');alert('Cloud initialization हो गया: '+n+' items.')}catch(e){alert('Cloud initialization failed: '+e.message)}}
-function init(){applyConfigFromLink();const u=document.getElementById('v80Url'),k=document.getElementById('v80Key'),c=cfg();if(u)u.value=c.url||'';if(k)k.value=c.key||'';document.getElementById('v80Connect')?.addEventListener('click',saveCfg);document.getElementById('v80Login')?.addEventListener('click',login);document.getElementById('v80Logout')?.addEventListener('click',logout);document.getElementById('v80Upload')?.addEventListener('click',upload);document.getElementById('v80Download')?.addEventListener('click',download);document.getElementById('v122InitializeCloud')?.addEventListener('click',initializeCloud);document.getElementById('v134ShareSetup')?.addEventListener('click',shareCloudSetup);document.getElementById('v123SyncNow')?.addEventListener('click',()=>sync('manual button'));if(initClient())authInfo();setTimeout(async()=>{try{if(!read('nms_students')||!Array.isArray(read('nms_students'))||read('nms_students').length===0){await bootstrapCloudToEmptyDevice()}}catch(e){console.warn('V159 recovery bootstrap:',e)}; try{await sync('startup')}catch(e){}},900);setTimeout(()=>window.nmsFeePullNow?.().catch(()=>{}),1400);window.addEventListener('online',()=>schedule('online'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule('visible')});setInterval(()=>{if(document.visibilityState==='visible'&&!busy)schedule('background')},10000)}
+async function initializeCloud(){try{await session();const existing=await client.from('school_kv').select('key,value').in('key',['nms_students','nms_teachers','nms_fees']);if(existing.error)throw existing.error;const em=new Map((existing.data||[]).map(x=>[x.key,x.value]));const localStudents=read('nms_students');if((!Array.isArray(localStudents)||localStudents.length===0)&&Array.isArray(em.get('nms_students'))&&em.get('nms_students').length>0)return alert('Cloud में school data मौजूद है. Empty device से Initialize रोक दिया गया है.');const keys=cloudKeys();let n=0;for(const k of keys){const lv=read(k);if(lv!==null){const r=await client.from('school_kv').upsert({key:k,value:clone(lv),updated_at:new Date().toISOString()},{onConflict:'key'});if(r.error)throw r.error;n++}}status(true,'Cloud Initialized • '+n+' items');info('cloud initialized');alert('Cloud initialization हो गया: '+n+' items.')}catch(e){alert('Cloud initialization failed: '+e.message)}}
+function init(){applyConfigFromLink();const u=document.getElementById('v80Url'),k=document.getElementById('v80Key'),c=cfg();if(u)u.value=c.url||'';if(k)k.value=c.key||'';document.getElementById('v80Connect')?.addEventListener('click',saveCfg);document.getElementById('v80Login')?.addEventListener('click',login);document.getElementById('v80Logout')?.addEventListener('click',logout);document.getElementById('v80Upload')?.addEventListener('click',upload);document.getElementById('v80Download')?.addEventListener('click',download);document.getElementById('v122InitializeCloud')?.addEventListener('click',initializeCloud);document.getElementById('v134ShareSetup')?.addEventListener('click',shareCloudSetup);document.getElementById('v123SyncNow')?.addEventListener('click',()=>sync('manual button'));if(initClient())authInfo();setTimeout(()=>sync('startup'),900);window.addEventListener('online',()=>schedule('online'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule('visible')});setInterval(()=>{if(document.visibilityState==='visible'&&!busy)schedule('background')},10000)}
 // Track user-created local changes. A cloud-applied write is shielded by `applying`.
 (function patchStorage(){if(window.__v131StoragePatched)return;window.__v131StoragePatched=true;const os=Storage.prototype.setItem,or=Storage.prototype.removeItem;Storage.prototype.setItem=function(k,v){os.call(this,k,v);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))schedule('local change')};Storage.prototype.removeItem=function(k){or.call(this,k);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))schedule('local delete')}})();
 window.v80Upload=upload;window.v80Download=download;window.v80Test=testConnection;window.v123SyncNow=()=>sync('manual');window.v123RenderSyncConflicts=()=>{};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
-})();
-</script>
-<script>
-/* V159 FEE SYNC FIX v4 — CLOUD RECOVERY BOOTSTRAP — true per-student cloud mirror + forced fee pull.
-   This is intentionally isolated from the frozen Student Ledger UI. */
-(function(){
-  const CFG='nms_v80_cloud_config', PREFIX='nms_', FEE_PREFIX='nms_fee_record_v159_';
-  function cfg(){try{return Object.assign({url:'',key:''},JSON.parse(localStorage.getItem(CFG)||'{}'))}catch(e){return {url:'',key:''}}}
-  function clone(v){try{return JSON.parse(JSON.stringify(v))}catch(e){return v}}
-  function same(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return a===b}}
-  function read(k){try{const x=localStorage.getItem(k);return x===null?null:JSON.parse(x)}catch(e){return null}}
-  function writeLocal(v){try{localStorage.setItem('nms_fees',JSON.stringify(v));return true}catch(e){return false}}
-  function mergeTx(a,b){
-    const m=new Map();
-    for(const t of [...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])]){
-      if(!t||typeof t!=='object')continue;
-      const id=String(t.id||t.receipt||JSON.stringify(t));
-      if(!m.has(id))m.set(id,clone(t));
-      else {const old=m.get(id);m.set(id,{...old,...clone(t),previousAmount:Math.max(Number(old.previousAmount||0),Number(t.previousAmount||0)),currentAmount:Math.max(Number(old.currentAmount||0),Number(t.currentAmount||0)),amount:Math.max(Number(old.amount||0),Number(t.amount||0))})}
-    }
-    return [...m.values()];
-  }
-  function mergeRec(a,b){
-    const A=a&&typeof a==='object'&&!Array.isArray(a)?a:{};
-    const B=b&&typeof b==='object'&&!Array.isArray(b)?b:{};
-    const R=clone(A);
-    R.sessions={...(A.sessions||{})};
-    for(const k of new Set([...Object.keys(A.sessions||{}),...Object.keys(B.sessions||{})])){
-      const x=(A.sessions||{})[k]||{},y=(B.sessions||{})[k]||{},z={...clone(x)};
-      for(const f of new Set([...Object.keys(x),...Object.keys(y)])){
-        if(f==='txns')z.txns=mergeTx(x.txns,y.txns);
-        else if(typeof x[f]==='number'||typeof y[f]==='number')z[f]=Math.max(Number(x[f]||0),Number(y[f]||0));
-        else if(z[f]===undefined)z[f]=clone(y[f]);
-      }
-      R.sessions[k]=z;
-    }
-    R.txns=mergeTx(A.txns,B.txns);
-    for(const f of ['total','manualDue','openingDue','fee'])if(typeof A[f]==='number'||typeof B[f]==='number')R[f]=Math.max(Number(A[f]||0),Number(B[f]||0));
-    for(const k of Object.keys(B))if(R[k]===undefined)R[k]=clone(B[k]);
-    return R;
-  }
-  function makeClient(){const c=cfg();if(!c.url||!c.key||!window.supabase)throw new Error('Cloud configuration नहीं मिली।');return window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}})}
-  async function pullFees(){
-    const client=makeClient(),ss=await client.auth.getSession();
-    if(ss.error)throw ss.error;if(!ss.data.session)throw new Error('Cloud login required');
-    const r=await client.from('school_kv').select('key,value,updated_at').order('key');
-    if(r.error)throw r.error;
-    const rows=r.data||[], local=(read('nms_fees')||{}), merged={...local};
-    let found=0;
-    for(const row of rows){
-      if(!String(row.key||'').startsWith(FEE_PREFIX))continue;
-      let rec=row.value;try{if(typeof rec==='string')rec=JSON.parse(rec)}catch(e){rec=null}
-      if(!rec||typeof rec!=='object')continue;
-      const sid=String(rec.studentId||String(row.key).slice(FEE_PREFIX.length));
-      merged[sid]=mergeRec(merged[sid],rec);found++;
-    }
-    /* Legacy rows remain a migration source, but never replace the merged records. */
-    for(const row of rows){
-      if(row.key!=='nms_fees')continue;
-      let v=row.value;try{if(typeof v==='string')v=JSON.parse(v)}catch(e){v=null}
-      if(v&&typeof v==='object'&&!Array.isArray(v)){
-        for(const sid of Object.keys(v))merged[sid]=mergeRec(merged[sid],v[sid]);
-      }
-    }
-    if(!same(merged,local)){if(!writeLocal(merged))throw new Error('Fee data local storage में save नहीं हो पाया');window.dispatchEvent(new CustomEvent('nms:feeSyncUpdated'));}
-    /* Publish every local fee record separately. A small row per student avoids one large blob and lets both devices merge independently. */
-    const writes=[];
-    for(const sid of Object.keys(merged)){
-      const rec=merged[sid];if(!rec||typeof rec!=='object')continue;
-      const payload={...clone(rec),studentId:String(sid)};
-      writes.push({key:FEE_PREFIX+String(sid),value:payload,updated_at:new Date().toISOString()});
-    }
-    if(writes.length){
-      const u=await client.from('school_kv').upsert(writes,{onConflict:'key'});
-      if(u.error)throw u.error;
-    }
-    return {records:found,total:Object.keys(merged).length};
-  }
-  window.nmsFeePullNow=async function(){
-    try{
-      const r=await pullFees();
-      const el=document.getElementById('v81AutoSyncInfo');if(el)el.textContent='🔄 Fee Sync: '+r.total+' student records merged';
-      return r;
-    }catch(e){console.error('Fee Sync v3:',e);const el=document.getElementById('v81AutoSyncInfo');if(el)el.textContent='⚠️ Fee Sync: '+(e.message||e);throw e;}
-  };
-  window.nmsFeeSyncInit=function(){try{window.nmsFeePullNow().catch(()=>{})}catch(e){}}
 })();
 </script>
 <script>
