@@ -224,6 +224,7 @@ if(document.readyState!=='loading'){} else {}
 <style id="v98-css">
 .v98-summary{display:grid;grid-template-columns:repeat(4,minmax(120px,1fr));gap:10px;margin:14px 0}.v98-stat{padding:12px;border:1px solid #dbe2ea;border-radius:10px;background:#f8fafc}.v98-stat b{display:block;font-size:20px}.v98-tools{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}.v98-tools button{white-space:nowrap}@media(max-width:700px){.v98-summary{grid-template-columns:repeat(2,1fr)}}
 </style>
+<!-- NMS V159 CLEAN SINGLE SYNC ENGINE BUILD 2026-09-13 -->
 </head>
 <body>
 <div class="app">
@@ -2369,7 +2370,7 @@ async function sync(reason){
     const u=await client.from('school_kv').upsert({key:k,value:clone(clean),updated_at:new Date().toISOString()},{onConflict:'key'});
     if(u.error)throw u.error;pushed++;
    }else if(lv!==null&&cr){
-    let merged=(k==='nms_fees'?mergeFeeData(lv,cv):merge(lv,cv));
+    let merged=(k==='nms_fees'?mergeFeeData(lv,cv):window.nmsMerge(lv,cv));
     if(k==='nms_students')merged=stripStudents(merged);
     if(k==='nms_teachers')merged=stripTeachers(merged);
     if(k==='nms_users_v77')merged=sanitizeUsers(merged);
@@ -3448,126 +3449,7 @@ if ('serviceWorker' in navigator) {
 }
 </script>
 
-<script id="v145-cloud-first-login">
-/* V145 Cloud-First Device Bootstrap
-   - V145 code remains untouched; this layer only adds the Users & Permissions cleanup path.
-   - NEVER place Supabase secret/service_role keys here.
-   - Set the two public values below once before deployment.
-*/
-(function(){
-  'use strict';
-  const EMBEDDED_URL='__SUPABASE_PROJECT_URL__';
-  const EMBEDDED_KEY='__SUPABASE_PUBLISHABLE_KEY__';
-  const CFG='nms_v80_cloud_config', USERS='nms_users_v77', SESSION='nms_login_v77';
-  const BOOT='nms_v145_cloud_bootstrap_done';
-  const SKIP_PREFIXES=['nms_v82_sync_','nms_v82_conflict','nms_v129_conflicts','nms_v131_'];
-  let client=null, booting=false;
-  function cfg(){
-    try{
-      const saved=JSON.parse(localStorage.getItem(CFG)||'{}');
-      const url=(saved.url||EMBEDDED_URL||'').trim().replace(/\/$/,'');
-      const key=(saved.key||EMBEDDED_KEY||'').trim();
-      return {url,key};
-    }catch(e){return {url:EMBEDDED_URL,key:EMBEDDED_KEY};}
-  }
-  function makeClient(){
-    if(!window.supabase)return null;
-    const c=cfg();
-    if(!c.url||c.url.indexOf('__SUPABASE_')===0||!c.key||c.key.indexOf('__SUPABASE_')===0)return null;
-    try{return window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}})}catch(e){return null}
-  }
-  function hasLocalCore(){
-    try{
-      const st=localStorage.getItem('nms_students'),te=localStorage.getItem('nms_teachers');
-      return !!((st&&st!=='[]')||(te&&te!=='[]'));
-    }catch(e){return false}
-  }
-  function setLocal(k,v){try{localStorage.setItem(k,typeof v==='string'?v:JSON.stringify(v));return true}catch(e){return false}}
-  function roleSession(authUser){
-    let users=[];try{users=JSON.parse(localStorage.getItem(USERS)||'[]')}catch(e){}
-    const email=String(authUser?.email||'').trim().toLowerCase();
-    const meta=authUser?.user_metadata||{};
-    const u=Array.isArray(users)?users.find(x=>{
-      const ce=String(x.cloudEmail||x.email||'').trim().toLowerCase();
-      const un=String(x.username||'').trim().toLowerCase();
-      return (ce&&ce===email)||(un&&un===email);
-    }):null;
-    const role=u?.role||meta.role||'teacher';
-    const sess={
-      id:u?.id||authUser.id,name:u?.name||meta.name||authUser.email||'User',
-      username:u?.username||authUser.email,role,
-      studentId:u?.studentId||'',guardianId:u?.guardianId||'',guardianStudentId:u?.guardianStudentId||'',
-      childIds:Array.isArray(u?.childIds)?u.childIds.slice():[]
-    };
-    sessionStorage.setItem(SESSION,JSON.stringify(sess));
-    return sess;
-  }
-  async function cloudRows(){
-    const r=await client.from('school_kv').select('key,value,updated_at').order('key');
-    if(r.error)throw r.error;
-    return r.data||[];
-  }
-  async function bootstrapCloud(){
-    if(booting)return false;booting=true;
-    try{
-      client=client||makeClient();
-      if(!client)return false;
-      const sr=await client.auth.getSession();
-      if(sr.error||!sr.data?.session)return false;
-      const rows=await cloudRows();
-      if(!rows.length)return false;
-      // New-device rule: cloud is authoritative for initial bootstrap.
-      for(const x of rows){
-        const k=String(x.key||'');
-        if(!k||k===CFG||k==='nms_sync_deleted')continue;
-        if(SKIP_PREFIXES.some(pre=>k.startsWith(pre)))continue;
-        setLocal(k,x.value);
-      }
-      const tomb=rows.find(x=>x.key==='nms_sync_deleted');
-      if(tomb)setLocal('nms_sync_deleted',tomb.value);
-      setLocal(CFG,JSON.stringify(cfg()));
-      setLocal(BOOT,'1');
-      roleSession(sr.data.session.user);
-      return true;
-    }catch(e){console.warn('V145 cloud bootstrap failed',e);return false}
-    finally{booting=false}
-  }
-  // School Login remains V145 local login. Admin first logs into Cloud from Central Database;
-  // once that Cloud session exists, this V145 layer bootstraps the new device from cloud.
-  const mo=new MutationObserver(()=>{});
-  function start(){
-    client=makeClient();
-    // Keep V145 role UI. Central Database remains hidden for non-admin users by the
-    // existing V145 safety layer; no school-login interception is performed here.
-    const hide=function(){
-      const sess=sessionStorage.getItem(SESSION);let u=null;try{u=JSON.parse(sess||'null')}catch(e){}
-      if(u&&u.role!=='admin'){
-        document.querySelectorAll('[data-page="centralDatabase"]').forEach(x=>x.style.display='none');
-        const page=document.getElementById('centralDatabase');if(page)page.style.display='none';
-      }
-    };
-    hide();
-    // If Admin has just completed Cloud Login, immediately bootstrap this device.
-    // Poll briefly because V145 Cloud Login is a separate UI action.
-    let tries=0;
-    const tick=async()=>{
-      tries++;
-      if(!client)return;
-      try{
-        const s=await client.auth.getSession();
-        if(s?.data?.session){
-          const ok=await bootstrapCloud();
-          if(ok){location.reload();return}
-        }
-      }catch(e){}
-      if(tries<20)setTimeout(tick,1000);
-    };
-    if(!hasLocalCore())setTimeout(tick,500);
-  }
-  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',start);else start();
-  window.nmsV145CloudBootstrap=bootstrapCloud;
-})();
-</script>
+<!-- V159 CLEAN BUILD: legacy V145 cloud bootstrap removed. Main V146 sync engine is the only automatic sync writer. -->
 
 
 <style id="v156-role-permission-safe">
