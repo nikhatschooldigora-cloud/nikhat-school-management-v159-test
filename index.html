@@ -1415,17 +1415,28 @@ function printFeeLedger(){const schoolLogo=getSchoolLogo();
   w.document.write(`<html><head><title>Student Fee Ledger</title><style>.print-school-head{display:flex;align-items:center;justify-content:center;gap:12px;text-align:center}.print-school-head img{image-rendering:auto;width:70px!important;height:70px!important;max-width:70px!important;max-height:70px!important;object-fit:contain;border-radius:50%;flex:0 0 70px}body{font-family:Arial;padding:20px}table{width:100%;border-collapse:collapse;font-size:12px}th,td{border:1px solid #aaa;padding:6px}h1,h3{text-align:center}</style></head><body><div class="print-school-head"><img src="${schoolLogo}" alt="School Logo"><div><h1>Nikhat Middle School Digora</h1><div class="dise-code">Dise Code - 23080208912</div></div></div><h3>Complete Student Fee Ledger — ${esc(feeSessionKey())}</h3><p><b>Total students:</b> ${students.length} &nbsp; <b>Students with fee activity:</b> ${feeActiveStudents().length} &nbsp; <b>Receipts:</b> ${getReceiptLedger().length}</p><table><tr><th>#</th><th>Admission</th><th>Student</th><th>Class</th><th>Prev Opening</th><th>Prev Paid</th><th>Prev Due</th><th>Current Fee</th><th>Current Paid</th><th>Current Due</th><th>Total Due</th></tr>${rows}</table><script>window.onload=()=>window.print()<\/script></body></html>`);w.document.close();
 }
 function openStudentFeeLedger(sid){
-  const s=students.find(x=>String(x.id)===String(sid));
-  if(!s){alert('Student record नहीं मिला।');return false;}
-  const x=feeStudentSummary(s);
-  const tx=getStudentFeeTransactions(s).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.receipt||'').localeCompare(String(b.receipt||'')));
-  const prev=Number(x.previous.fee||0), prevPaid=Number(x.previous.paid||0), prevDue=Number(x.previous.due||0);
-  const cur=Number(x.current.fee||0), curPaid=Number(x.current.paid||0), curDue=Number(x.current.due||0);
-  const rows=tx.length?tx.map((t,i)=>`<tr><td>${i+1}</td><td>${esc(t.date||'')}</td><td>${esc(t.receipt||'-')}</td><td>${esc(t.session||'-')}</td><td>${t.allocated==='previous'?money(t.amount):money(0)}</td><td>${t.allocated==='current'?money(t.amount):money(0)}</td><td>${money(t.amount||0)}</td><td>${esc(t.mode||'Cash')}</td><td>${esc(t.note||'')}</td></tr>`).join(''):`<tr><td colspan="9" style="text-align:center">कोई payment transaction नहीं है।</td></tr>`;
   const w=window.open('','_blank');
   if(!w){alert('Ledger खोलने के लिए browser popup allow करें।');return false;}
-  w.document.write(`<html><head><title>Student Fee Ledger - ${esc(s.name)}</title><style>.print-school-head{display:flex;align-items:center;justify-content:center;gap:12px;text-align:center}.print-school-head img{image-rendering:auto;width:70px!important;height:70px!important;max-width:70px!important;max-height:70px!important;object-fit:contain;border-radius:50%;flex:0 0 70px}body{font-family:Arial,sans-serif;padding:22px;color:#222}h1,h2{text-align:center;margin:5px 0}p{margin:6px 0}.info{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}.box{border:1px solid #bbb;border-radius:8px;padding:10px}.box b{display:block;font-size:16px;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:18px;font-size:12px}th,td{border:1px solid #aaa;padding:6px;text-align:left}th{font-weight:bold}.total{font-size:18px;text-align:right;margin-top:14px}@media print{button{display:none}}</style></head><body><div class="print-school-head"><img src="${schoolLogo}" alt="School Logo"><div><h1>Nikhat Middle School Digora</h1><div class="dise-code">Dise Code - 23080208912</div></div></div><h2>Student Fee Ledger</h2><p><b>Student:</b> ${esc(s.name)} &nbsp; <b>Admission:</b> ${esc(s.adm||'')} &nbsp; <b>Class:</b> ${esc(s.cls||'')}</p><div class="info"><div class="box"><small>Previous Session ${esc(previousSessionKey())}</small><b>Fee / Opening: ${money(prev)}</b><div>Paid: ${money(prevPaid)} &nbsp; | &nbsp; Due: ${money(prevDue)}</div></div><div class="box"><small>Current Session ${esc(feeSessionKey())}</small><b>Fee: ${money(cur)}</b><div>Paid: ${money(curPaid)} &nbsp; | &nbsp; Due: ${money(curDue)}</div></div><div class="box"><small>Total Paid</small><b>${money(x.paid)}</b></div><div class="box"><small>Total Outstanding</small><b>${money(x.totalDue)}</b></div></div><table><tr><th>#</th><th>Date</th><th>Receipt No.</th><th>Session</th><th>Previous</th><th>Current</th><th>Total</th><th>Mode</th><th>Note</th></tr>${rows}</table><p class="total"><b>Total Due: ${money(x.totalDue)}</b></p><div style="text-align:center;margin-top:20px"><button onclick="window.print()">Print Ledger</button></div><script>window.onload=()=>{setTimeout(()=>window.print(),250)}<\/script></body></html>`);
-  w.document.close();
+  try{
+    w.document.open();
+    w.document.write('<!doctype html><html><head><meta charset="utf-8"><title>Student Fee Ledger</title><style>body{font-family:Arial,sans-serif;padding:22px;color:#222}h1,h2{text-align:center;margin:5px 0}.print-school-head{display:flex;align-items:center;justify-content:center;gap:12px;text-align:center}.print-school-head img{width:70px;height:70px;object-fit:contain;border-radius:50%}p{margin:6px 0}.info{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}.box{border:1px solid #bbb;border-radius:8px;padding:10px}.box b{display:block;font-size:16px;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:18px;font-size:12px}th,td{border:1px solid #aaa;padding:6px;text-align:left}th{font-weight:bold}.total{font-size:18px;text-align:right;margin-top:14px}@media print{button{display:none}}</style></head><body><p>Ledger तैयार हो रहा है...</p></body></html>');
+    w.document.close();
+    const s=students.find(x=>String(x.id)===String(sid));
+    if(!s) throw new Error('Student record नहीं मिला।');
+    const x=feeStudentSummary(s);
+    const tx=feeTransactionsForStudent(s.id).sort((a,b)=>String(a.date||'').localeCompare(String(b.date||''))||String(a.receipt||'').localeCompare(String(b.receipt||'')));
+    const prev=Number(x.previous.fee||0), prevPaid=Number(x.previous.paid||0), prevDue=Number(x.previous.due||0);
+    const cur=Number(x.current.fee||0), curPaid=Number(x.current.paid||0), curDue=Number(x.current.due||0);
+    const rows=tx.length?tx.map((t,i)=>`<tr><td>${i+1}</td><td>${esc(t.date||'')}</td><td>${esc(t.receipt||'-')}</td><td>${esc(t.session||'-')}</td><td>${money(t.previousAmount||0)}</td><td>${money(t.currentAmount||0)}</td><td>${money(t.amount||0)}</td><td>${esc(t.mode||'Cash')}</td><td>${esc(t.note||'')}</td></tr>`).join(''):`<tr><td colspan="9" style="text-align:center">कोई payment transaction नहीं है।</td></tr>`;
+    const schoolLogo=getSchoolLogo();
+    const html=`<!doctype html><html><head><meta charset="utf-8"><title>Student Fee Ledger - ${esc(s.name)}</title><style>body{font-family:Arial,sans-serif;padding:22px;color:#222}h1,h2{text-align:center;margin:5px 0}.print-school-head{display:flex;align-items:center;justify-content:center;gap:12px;text-align:center}.print-school-head img{width:70px!important;height:70px!important;max-width:70px!important;max-height:70px!important;object-fit:contain;border-radius:50%}p{margin:6px 0}.info{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:18px 0}.box{border:1px solid #bbb;border-radius:8px;padding:10px}.box b{display:block;font-size:16px;margin-top:4px}table{width:100%;border-collapse:collapse;margin-top:18px;font-size:12px}th,td{border:1px solid #aaa;padding:6px;text-align:left}th{font-weight:bold}.total{font-size:18px;text-align:right;margin-top:14px}@media print{button{display:none}}</style></head><body><div class="print-school-head"><img src="${schoolLogo}" alt="School Logo"><div><h1>Nikhat Middle School Digora</h1><div class="dise-code">Dise Code - 23080208912</div></div></div><h2>Student Fee Ledger</h2><p><b>Student:</b> ${esc(s.name)} &nbsp; <b>Admission:</b> ${esc(s.adm||'')} &nbsp; <b>Class:</b> ${esc(s.cls||'')}</p><div class="info"><div class="box"><small>Previous Session ${esc(previousSessionKey())}</small><b>Fee / Opening: ${money(prev)}</b><div>Paid: ${money(prevPaid)} &nbsp; | &nbsp; Due: ${money(prevDue)}</div></div><div class="box"><small>Current Session ${esc(feeSessionKey())}</small><b>Fee: ${money(cur)}</b><div>Paid: ${money(curPaid)} &nbsp; | &nbsp; Due: ${money(curDue)}</div></div><div class="box"><small>Total Paid</small><b>${money(x.paid)}</b></div><div class="box"><small>Total Outstanding</small><b>${money(x.totalDue)}</b></div></div><table><tr><th>#</th><th>Date</th><th>Receipt No.</th><th>Session</th><th>Previous</th><th>Current</th><th>Total</th><th>Mode</th><th>Note</th></tr>${rows}</table><p class="total"><b>Total Due: ${money(x.totalDue)}</b></p><div style="text-align:center;margin-top:20px"><button onclick="window.print()">Print Ledger</button></div><script>window.onload=()=>{setTimeout(()=>window.print(),250)}<\/script></body></html>`;
+    w.document.open();
+    w.document.write(html);
+    w.document.close();
+  }catch(err){
+    try{w.document.open();w.document.write('<!doctype html><html><body style="font-family:Arial;padding:30px"><h2>Student Fee Ledger</h2><p>Ledger खोलते समय समस्या आई:</p><pre style="white-space:pre-wrap">'+esc(err&&err.message?err.message:err)+'</pre><p>कृपया इस स्क्रीन का screenshot भेजें।</p></body></html>');w.document.close();}catch(e){}
+    console.error('Student Fee Ledger',err);
+  }
   return false;
 }
 function renderFees(){
@@ -2368,115 +2379,9 @@ function applyMemory(k,v){try{if(k==='nms_students'){students=Array.isArray(v)?v
 async function upload(){return sync('manual upload')}
 async function download(){try{await session();const r=await client.from('school_kv').select('key,value,updated_at').order('key');if(r.error)throw r.error;if(!r.data?.length)return alert('Cloud database खाली है.');if(!confirm('Cloud data को इस device में replace करना है?'))return;applying=true;try{for(const x of r.data){if(x.key===CFG)continue;localStorage.setItem(x.key,typeof x.value==='string'?x.value:JSON.stringify(x.value))}}finally{applying=false}location.reload()}catch(e){alert('Download failed: '+e.message)}}
 async function initializeCloud(){try{await session();const keys=cloudKeys();let n=0;for(const k of keys){const lv=read(k);if(lv!==null){const r=await client.from('school_kv').upsert({key:k,value:clone(lv),updated_at:new Date().toISOString()},{onConflict:'key'});if(r.error)throw r.error;n++}}status(true,'Cloud Initialized • '+n+' items');info('cloud initialized');alert('Cloud initialization हो गया: '+n+' items.')}catch(e){alert('Cloud initialization failed: '+e.message)}}
-function init(){applyConfigFromLink();const u=document.getElementById('v80Url'),k=document.getElementById('v80Key'),c=cfg();if(u)u.value=c.url||'';if(k)k.value=c.key||'';document.getElementById('v80Connect')?.addEventListener('click',saveCfg);document.getElementById('v80Login')?.addEventListener('click',login);document.getElementById('v80Logout')?.addEventListener('click',logout);document.getElementById('v80Upload')?.addEventListener('click',uploadUnified);document.getElementById('v80Download')?.addEventListener('click',downloadUnified);document.getElementById('v122InitializeCloud')?.addEventListener('click',initializeCloudUnified);document.getElementById('v134ShareSetup')?.addEventListener('click',shareCloudSetup);document.getElementById('v123SyncNow')?.addEventListener('click',()=>syncUnified('manual button'));if(initClient())authInfo();setTimeout(()=>syncUnified('startup'),900);window.addEventListener('online',()=>scheduleUnified('online'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleUnified('visible')});setInterval(()=>{if(document.visibilityState==='visible'&&!busy)scheduleUnified('background')},10000)}
+function init(){applyConfigFromLink();const u=document.getElementById('v80Url'),k=document.getElementById('v80Key'),c=cfg();if(u)u.value=c.url||'';if(k)k.value=c.key||'';document.getElementById('v80Connect')?.addEventListener('click',saveCfg);document.getElementById('v80Login')?.addEventListener('click',login);document.getElementById('v80Logout')?.addEventListener('click',logout);document.getElementById('v80Upload')?.addEventListener('click',upload);document.getElementById('v80Download')?.addEventListener('click',download);document.getElementById('v122InitializeCloud')?.addEventListener('click',initializeCloud);document.getElementById('v134ShareSetup')?.addEventListener('click',shareCloudSetup);document.getElementById('v123SyncNow')?.addEventListener('click',()=>sync('manual button'));if(initClient())authInfo();setTimeout(()=>sync('startup'),900);window.addEventListener('online',()=>schedule('online'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule('visible')});setInterval(()=>{if(document.visibilityState==='visible'&&!busy)schedule('background')},10000)}
 // Track user-created local changes. A cloud-applied write is shielded by `applying`.
-(function patchStorage(){if(window.__v131StoragePatched)return;window.__v131StoragePatched=true;const os=Storage.prototype.setItem,or=Storage.prototype.removeItem;Storage.prototype.setItem=function(k,v){os.call(this,k,v);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))scheduleUnified('local change')};Storage.prototype.removeItem=function(k){or.call(this,k);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))scheduleUnified('local delete')}})();
-/* V159 UNIFIED SYNC ENGINE — single writer path, fee transaction preservation, no destructive download */
-async function syncUnified(reason){
- if(busy)return; busy=true;
- try{
-  await session(); info('syncing...');
-  const rr=await client.from('school_kv').select('key,value,updated_at').order('key');
-  if(rr.error)throw rr.error;
-  const rows=rr.data||[], cloud=new Map(rows.map(x=>[x.key,x]));
-  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_fees','nms_attendance','nms_marks'])];
-  let changed=[]; let pushed=0;
-  const feeTxKeyPrefix='nms_fee_txn_';
-  const isFeeTxn=k=>String(k).startsWith(feeTxKeyPrefix);
-  const readObj=k=>{const v=read(k);return v};
-  // 1) First publish every fee transaction as its own immutable cloud item.
-  //    This prevents Device A's full nms_fees snapshot from erasing Device B's receipt.
-  const localFees=readObj('nms_fees')||{};
-  const localTxns=[];
-  if(localFees&&typeof localFees==='object'&&!Array.isArray(localFees)){
-   for(const [sid,rec] of Object.entries(localFees)){
-    if(!rec||typeof rec!=='object')continue;
-    const sessions=rec.sessions&&typeof rec.sessions==='object'?rec.sessions:{};
-    const all=[];
-    if(Array.isArray(rec.txns))all.push(...rec.txns);
-    for(const ses of Object.values(sessions))if(ses&&Array.isArray(ses.txns))all.push(...ses.txns);
-    for(const tx of all){if(tx&&tx.id)localTxns.push({key:feeTxKeyPrefix+String(tx.id),value:{studentId:sid,tx:clone(tx)},updated_at:new Date().toISOString()})}
-   }
-  }
-  const localFeeTxnIds=new Set();
-  for(const item of localTxns){
-   localFeeTxnIds.add(item.key.slice(feeTxKeyPrefix.length));
-   if(!cloud.has(item.key)){
-    const u=await client.from('school_kv').upsert(item,{onConflict:'key'});
-    if(u.error)throw u.error;pushed++;
-   }
-  }
-  // 2) Import every cloud fee transaction missing locally. Existing transactions are never deleted.
-  let mergedFees=clone(localFees)||{};
-  for(const [k,row] of cloud.entries()){
-   if(!isFeeTxn(k))continue;
-   const tx=row?.value?.tx, sid=row?.value?.studentId;
-   if(!tx||!sid||!tx.id)continue;
-   if(!mergedFees[sid]||typeof mergedFees[sid]!=='object'||Array.isArray(mergedFees[sid]))mergedFees[sid]={total:0,txns:[],sessions:{}};
-   const rec=mergedFees[sid]; if(!rec.sessions||typeof rec.sessions!=='object')rec.sessions={};
-   const session=String(tx.session||feeSessionKey());
-   if(!rec.sessions[session])rec.sessions[session]={fee:0,txns:[]};
-   if(!Array.isArray(rec.sessions[session].txns))rec.sessions[session].txns=[];
-   const all=Object.values(rec.sessions).flatMap(z=>Array.isArray(z?.txns)?z.txns:[]).concat(Array.isArray(rec.txns)?rec.txns:[]);
-   if(!all.some(x=>String(x?.id)===String(tx.id)))rec.sessions[session].txns.push(clone(tx));
-  }
-  // 3) Merge fee metadata/settings (fees, openingDue, manualDue) without replacing a non-empty side.
-  const cloudFees=cloud.get('nms_fees')?.value;
-  if(cloudFees&&typeof cloudFees==='object'&&!Array.isArray(cloudFees)){
-   const base=clone(mergedFees)||{};
-   for(const [sid,cr] of Object.entries(cloudFees)){
-    const lr=base[sid];
-    if(!lr||typeof lr!=='object'||Array.isArray(lr)){base[sid]=clone(cr);continue}
-    if(cr&&typeof cr==='object'){
-     if(cr.total!=null)lr.total=Math.max(Number(lr.total||0),Number(cr.total||0));
-     if(cr.sessions&&typeof cr.sessions==='object'){
-      lr.sessions=lr.sessions&&typeof lr.sessions==='object'?lr.sessions:{};
-      for(const [sk,cs] of Object.entries(cr.sessions)){
-       const ls=lr.sessions[sk]; if(!ls||typeof ls!=='object'){lr.sessions[sk]=clone(cs);continue;}
-       for(const fld of ['fee','openingDue','manualDue']){
-        if(cs&&cs[fld]!=null){
-         const a=Number(ls[fld]||0),b=Number(cs[fld]||0);
-         // For fee/opening settings, prefer the larger non-zero value; transactions are authoritative for paid amounts.
-         if(!Number.isNaN(b)&&b>a)ls[fld]=b;
-        }
-       }
-       const txs=Array.isArray(ls.txns)?ls.txns:[]; const seen=new Set(txs.map(t=>String(t?.id)));
-       for(const tx of Array.isArray(cs.txns)?cs.txns:[])if(tx?.id&&!seen.has(String(tx.id))){txs.push(clone(tx));seen.add(String(tx.id));}
-       ls.txns=txs;
-      }
-     }
-    }
-   }
-  }
-  // Recalculate legacy aggregate fields only where the existing app expects them; never remove sessions/txns.
-  try{
-   for(const rec of Object.values(mergedFees||{})){
-    if(!rec||typeof rec!=='object')continue;
-    const txs=[]; for(const ses of Object.values(rec.sessions||{}))if(Array.isArray(ses?.txns))txs.push(...ses.txns);
-    if(txs.length)rec.total=txs.reduce((a,t)=>a+Number(t?.amount||0),0);
-   }
-  }catch(e){}
-  if(!same(mergedFees,localFees)){if(setLocal('nms_fees',mergedFees)){applyMemory('nms_fees',mergedFees);changed.push('nms_fees')}}
-  // 4) Unified merge for all other module keys. No special fee reconciler and no destructive download.
-  const skip=new Set(['nms_fees','nms_sync_deleted']);
-  for(const k of keys){
-   if(skip.has(k)||isFeeTxn(k))continue;
-   const cr=cloud.get(k), lv=read(k);
-   if(lv===null&&cr){if(setLocal(k,cr.value)){applyMemory(k,cr.value);changed.push(k)}continue}
-   if(lv!==null&&!cr){const u=await client.from('school_kv').upsert({key:k,value:clone(lv),updated_at:new Date().toISOString()},{onConflict:'key'});if(u.error)throw u.error;pushed++;continue}
-   if(lv!==null&&cr){let m=merge(lv,cr.value);if(k==='nms_students')m=Array.isArray(m)?m:[];if(k==='nms_teachers')m=Array.isArray(m)?m:[];if(k==='nms_users_v77'&&typeof sanitizeUsers==='function')m=sanitizeUsers(m);if(!same(m,lv)){if(setLocal(k,m)){applyMemory(k,m);changed.push(k)}}if(!same(m,cr.value)){const u=await client.from('school_kv').upsert({key:k,value:clone(m),updated_at:new Date().toISOString()},{onConflict:'key'});if(u.error)throw u.error;pushed++}}
-  }
-  // 5) Publish the merged fee snapshot once, through this same engine. It is now a cache; receipt durability is in per-txn rows.
-  const fu=await client.from('school_kv').upsert({key:'nms_fees',value:clone(mergedFees),updated_at:new Date().toISOString()},{onConflict:'key'});if(fu.error)throw fu.error;pushed++;
-  if(changed.length)refresh(changed);
-  status(true,'Connected + Logged in'); info('Unified Sync • '+rows.length+' cloud items'+(pushed?' • '+pushed+' update(s)':'')+' • fees transaction-safe');
- }catch(e){console.warn('Unified Sync:',e);status(false,'Connected + Logged in • Sync Error');info('sync error • '+String(e.message||e).slice(0,140));}
- finally{busy=false}
-}
-function scheduleUnified(reason){clearTimeout(timer);timer=setTimeout(()=>syncUnified(reason),500)}
-async function uploadUnified(){return syncUnified('manual upload')}
-async function downloadUnified(){return syncUnified('manual download')}
-async function initializeCloudUnified(){return syncUnified('initialize cloud')}
+(function patchStorage(){if(window.__v131StoragePatched)return;window.__v131StoragePatched=true;const os=Storage.prototype.setItem,or=Storage.prototype.removeItem;Storage.prototype.setItem=function(k,v){os.call(this,k,v);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))schedule('local change')};Storage.prototype.removeItem=function(k){or.call(this,k);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))schedule('local delete')}})();
 window.v80Upload=upload;window.v80Download=download;window.v80Test=testConnection;window.v123SyncNow=()=>sync('manual');window.v123RenderSyncConflicts=()=>{};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
 })();
