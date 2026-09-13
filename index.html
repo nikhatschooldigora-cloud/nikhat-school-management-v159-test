@@ -2236,6 +2236,43 @@ function merge(a,b){
  if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){const o={};for(const k of new Set([...Object.keys(a),...Object.keys(b)]))o[k]=merge(a[k],b[k]);return o}
  return clone(a);
 }
+function mergeFeeData(a,b){
+  if(a==null)return clone(b); if(b==null)return clone(a);
+  const out=clone(a);
+  const keys=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);
+  for(const sid of keys){
+    const A=(a&&a[sid]&&typeof a[sid]==='object'&&!Array.isArray(a[sid]))?a[sid]:{};
+    const B=(b&&b[sid]&&typeof b[sid]==='object'&&!Array.isArray(b[sid]))?b[sid]:{};
+    const R=clone(A);
+    // Preserve every session and every receipt from both devices.
+    R.sessions={...(A.sessions||{})};
+    for(const sk of new Set([...Object.keys(A.sessions||{}),...Object.keys(B.sessions||{})])){
+      const sa=(A.sessions||{})[sk]||{}, sb=(B.sessions||{})[sk]||{};
+      const sr={...clone(sa)};
+      for(const k of new Set([...Object.keys(sa),...Object.keys(sb)])){
+        if(k==='txns'){
+          const aa=Array.isArray(sa.txns)?sa.txns:[], bb=Array.isArray(sb.txns)?sb.txns:[];
+          const m=new Map();
+          for(const t of [...aa,...bb]){if(!t||typeof t!=='object')continue;const id=String(t.id||t.receipt||JSON.stringify(t));if(!m.has(id))m.set(id,clone(t));else m.set(id,merge(m.get(id),t));}
+          sr.txns=[...m.values()];
+        }else if(typeof sa[k]==='number'||typeof sb[k]==='number'){
+          const av=Number(sa[k]||0),bv=Number(sb[k]||0);
+          // Fee totals/due values are monotonic in this legacy schema; never let 0 erase a real value.
+          sr[k]=Math.max(av,bv);
+        }else if(sa[k]===undefined)sr[k]=clone(sb[k]);
+      }
+      R.sessions[sk]=sr;
+    }
+    // Also preserve legacy top-level transactions.
+    const aa=Array.isArray(A.txns)?A.txns:[], bb=Array.isArray(B.txns)?B.txns:[];
+    const tm=new Map(); for(const t of [...aa,...bb]){if(!t||typeof t!=='object')continue;const id=String(t.id||t.receipt||JSON.stringify(t));if(!tm.has(id))tm.set(id,clone(t));}
+    R.txns=[...tm.values()];
+    for(const k of ['total','manualDue','openingDue','fee']) if(typeof A[k]==='number'||typeof B[k]==='number') R[k]=Math.max(Number(A[k]||0),Number(B[k]||0));
+    for(const k of Object.keys(B)) if(R[k]===undefined)R[k]=clone(B[k]);
+    out[sid]=R;
+  }
+  return out;
+}
 function setLocal(k,v){applying=true;try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){try{if(typeof freeLocalStorageForSync==='function')freeLocalStorageForSync();localStorage.setItem(k,JSON.stringify(v));return true}catch(e2){console.warn('sync local write failed',k,e2);return false}}finally{applying=false}}
 function refresh(keys){try{updateDash?.();renderStudents?.();renderClasses?.();renderTeachers?.();renderAttendance?.();renderMonthlyAttendance?.();renderFees?.();updateFeeDashboard?.();renderFeeStudentLedger?.();renderExamRows?.();renderExamList?.();}catch(e){}try{window.v77RenderUsers?.()}catch(e){}try{window.dispatchEvent(new CustomEvent('nms:cloudSyncUpdated',{detail:{keys}}))}catch(e){}}
 function applyConfigFromLink(){try{const p=new URLSearchParams(location.search),token=p.get('nms_cloud');if(!token)return;let b=token.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';const c=JSON.parse(decodeURIComponent(escape(atob(b))));if(c&&c.url&&c.key){localStorage.setItem(CFG,JSON.stringify({url:String(c.url).replace(/\/$/,''),key:String(c.key)}));history.replaceState({},document.title,location.pathname+location.hash)}}catch(e){console.warn('Cloud setup link ignored',e)}}
@@ -2275,7 +2312,7 @@ async function sync(reason){
    if(k==='nms_students')lv=stripStudents(lv); else if(k==='nms_teachers')lv=stripTeachers(lv); else if(k==='nms_users_v77')lv=sanitizeUsers(lv);
    if(!same(lv,lv0)&&setLocal(k,lv)){applyMemory(k,lv);changed.push(k)}
    let merged;
-   if(lv===null&&cr)merged=clone(cv); else if(lv!==null&&!cr)merged=clone(lv); else if(lv!==null&&cr)merged=merge(lv,cv); else continue;
+   if(lv===null&&cr)merged=clone(cv); else if(lv!==null&&!cr)merged=clone(lv); else if(lv!==null&&cr)merged=(k==='nms_fees'?mergeFeeData(lv,cv):merge(lv,cv)); else continue;
    if(k==='nms_students')merged=stripStudents(merged); else if(k==='nms_teachers')merged=stripTeachers(merged); else if(k==='nms_users_v77')merged=sanitizeUsers(merged);
    if(!same(merged,lv)&&setLocal(k,merged)){applyMemory(k,merged);changed.push(k)}
    if(!same(merged,cv))writes.push({key:k,value:clone(merged),updated_at:new Date().toISOString()});
@@ -2284,7 +2321,7 @@ async function sync(reason){
   if(writes.length){const u=await client.from('school_kv').upsert(writes,{onConflict:'key'});if(u.error)throw u.error;}
   if(changed.length)refresh([...new Set(changed)]);
   status(true,'Connected + Logged in');
-  info('V159 SAFE MERGE • '+(reason||'auto')+' • '+writes.length+' cloud row(s) updated');
+  info('V159 SAFE MERGE + FEE MERGE • '+(reason||'auto')+' • '+writes.length+' cloud row(s) updated');
  }catch(e){console.warn('V159 SAFE MERGE sync:',e);status(true,'Connected + Logged in');info('sync paused • '+String(e.message||e).slice(0,160));}
  finally{busy=false}
 }
