@@ -2273,6 +2273,15 @@ function mergeFeeData(a,b){
   }
   return out;
 }
+function applyMemory(k,v){
+  try{
+    if(k==='nms_students'&&Array.isArray(v)) students=v;
+    else if(k==='nms_teachers'&&Array.isArray(v)) teachers=v;
+    else if(k==='nms_fees'&&v&&typeof v==='object'&&!Array.isArray(v)) fees=v;
+    else if(k==='nms_attendance'&&v&&typeof v==='object') attendance=v;
+    else if(k==='nms_marks'&&v&&typeof v==='object') marks=v;
+  }catch(e){console.warn('sync memory update failed',k,e)}
+}
 function setLocal(k,v){applying=true;try{localStorage.setItem(k,JSON.stringify(v));return true}catch(e){try{if(typeof freeLocalStorageForSync==='function')freeLocalStorageForSync();localStorage.setItem(k,JSON.stringify(v));return true}catch(e2){console.warn('sync local write failed',k,e2);return false}}finally{applying=false}}
 function refresh(keys){try{updateDash?.();renderStudents?.();renderClasses?.();renderTeachers?.();renderAttendance?.();renderMonthlyAttendance?.();renderFees?.();updateFeeDashboard?.();renderFeeStudentLedger?.();renderExamRows?.();renderExamList?.();}catch(e){}try{window.v77RenderUsers?.()}catch(e){}try{window.dispatchEvent(new CustomEvent('nms:cloudSyncUpdated',{detail:{keys}}))}catch(e){}}
 function applyConfigFromLink(){try{const p=new URLSearchParams(location.search),token=p.get('nms_cloud');if(!token)return;let b=token.replace(/-/g,'+').replace(/_/g,'/');while(b.length%4)b+='=';const c=JSON.parse(decodeURIComponent(escape(atob(b))));if(c&&c.url&&c.key){localStorage.setItem(CFG,JSON.stringify({url:String(c.url).replace(/\/$/,''),key:String(c.key)}));history.replaceState({},document.title,location.pathname+location.hash)}}catch(e){console.warn('Cloud setup link ignored',e)}}
