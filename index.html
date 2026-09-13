@@ -2236,6 +2236,10 @@ function merge(a,b){
  if(typeof a==='object'&&typeof b==='object'&&!Array.isArray(a)&&!Array.isArray(b)){const o={};for(const k of new Set([...Object.keys(a),...Object.keys(b)]))o[k]=merge(a[k],b[k]);return o}
  return clone(a);
 }
+/* V159 FINAL SYNC REPAIR: expose the shared merge helper globally so any legacy
+   sync callback/handler still calling merge() cannot throw "merge is not defined". */
+window.nmsMerge = merge;
+window.merge = merge;
 function mergeFeeData(a,b){
  if(a===undefined||a===null)return clone(b); if(b===undefined||b===null)return clone(a);
  if(Array.isArray(a)&&Array.isArray(b)){
@@ -2404,7 +2408,7 @@ async function sync(reason){
   }
   if(changed.length)refresh(changed);
   status(true,'Connected + Logged in');
-  info('V148 • synced '+rows.length+' cloud items'+(pushed?' • '+pushed+' update(s) pushed':'')+' • no page refresh');
+  info('V159 • synced '+rows.length+' cloud items'+(pushed?' • '+pushed+' update(s) pushed':'')+' • no page refresh');
  }catch(e){
   console.warn('V146 sync:',e); status(false,'Connected + Logged in • Sync Error');
   info('sync error • '+String(e.message||e).slice(0,140));
