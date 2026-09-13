@@ -2305,8 +2305,43 @@ async function sync(reason){
   const stripStudents=v=>Array.isArray(v)?v.filter(x=>!studentDeleted(x)):v;
   const stripTeachers=v=>Array.isArray(v)?v.filter(x=>!teacherDeleted(x)):v;
   const sanitizeUsers=v=>{if(!Array.isArray(v))return v;const activeList=stripStudents(read('nms_students'));const active=new Set((Array.isArray(activeList)?activeList:[]).map(s=>String(s?.id||'')));return v.filter(u=>{if(!u||typeof u!=='object')return true;if(u.role==='student')return active.has(String(u.studentId||''));if(u.role==='guardian'){const ids=(Array.isArray(u.childIds)?u.childIds:[]).map(String).filter(id=>active.has(id));if(!ids.length&&u.guardianStudentId&&active.has(String(u.guardianStudentId)))ids.push(String(u.guardianStudentId));if(!ids.length)return false;u.childIds=[...new Set(ids)];u.guardianStudentId=u.childIds[0]||'';return true}return true})};
-  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_fees','nms_attendance','nms_marks'])].filter(k=>k!=='nms_sync_deleted');
+  /* V159 FEE FIX: nms_fees is a large per-school blob and was the remaining
+     weak point in cross-device sync. Keep a durable per-student cloud record
+     for every fee record, and treat the legacy nms_fees row as a cache/snapshot.
+     Only this sync path writes those fee records. */
+  const feePrefix='nms_fee_record_';
+  const feeCloud=new Map([...cloud.entries()].filter(([k])=>String(k).startsWith(feePrefix)));
+  const feeLocal=(read('nms_fees')&&typeof read('nms_fees')==='object'&&!Array.isArray(read('nms_fees')))?read('nms_fees'):{};
+  let feeMerged=clone(feeLocal||{});
+  const feeLegacy=cloud.get('nms_fees');
+  if(feeLegacy&&feeLegacy.value&&typeof feeLegacy.value==='object'&&!Array.isArray(feeLegacy.value)) feeMerged=mergeFeeData(feeMerged,feeLegacy.value);
+  for(const [fk,row] of feeCloud.entries()){
+    const sid=fk.slice(feePrefix.length);
+    let rv=row?.value;
+    try{if(typeof rv==='string')rv=JSON.parse(rv)}catch(e){rv=null}
+    if(rv&&typeof rv==='object'&&!Array.isArray(rv)) feeMerged[sid]=mergeFeeData({[sid]:feeMerged[sid]||{}},{[sid]:rv})[sid];
+  }
+  /* Publish local fee records individually. A zero/empty local record never
+     erases a richer cloud record because mergeFeeData is used first. */
+  for(const sid of new Set([...Object.keys(feeMerged||{}),...Object.keys(feeLocal||{})])){
+    const localRec=feeLocal?.[sid]||{};
+    const cloudRec=(()=>{let v=feeCloud.get(feePrefix+sid)?.value;try{return typeof v==='string'?JSON.parse(v):v}catch(e){return null}})()||{};
+    const mergedRec=mergeFeeData({[sid]:localRec},{[sid]:cloudRec})[sid]||{};
+    feeMerged[sid]=mergedRec;
+  }
+  let feeChanged=false;
+  if(!same(feeMerged,feeLocal)){
+    setLocal('nms_fees',feeMerged);applyMemory('nms_fees',feeMerged);feeChanged=true;
+  }
+  const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_attendance','nms_marks'])]
+    .filter(k=>k!=='nms_sync_deleted'&&k!=='nms_fees'&&!String(k).startsWith(feePrefix));
   const writes=[]; const changed=[];
+  /* Write one durable row per student fee record. */
+  for(const sid of Object.keys(feeMerged||{})){
+    const key=feePrefix+sid, value=clone(feeMerged[sid]||{}), cr=feeCloud.get(key)?.value;
+    if(!same(value,cr))writes.push({key,value,updated_at:new Date().toISOString()});
+  }
+  if(!same(feeMerged,feeLegacy?.value))writes.push({key:'nms_fees',value:clone(feeMerged),updated_at:new Date().toISOString()});
   for(const k of keys){
    const lv0=read(k), cr=cloud.get(k), cv=cr?cr.value:null; let lv=lv0;
    if(k==='nms_students')lv=stripStudents(lv); else if(k==='nms_teachers')lv=stripTeachers(lv); else if(k==='nms_users_v77')lv=sanitizeUsers(lv);
@@ -2319,7 +2354,7 @@ async function sync(reason){
   }
   if(!same(tomb,cloudT)||!cloud.has('nms_sync_deleted'))writes.push({key:'nms_sync_deleted',value:tomb,updated_at:new Date().toISOString()});
   if(writes.length){const u=await client.from('school_kv').upsert(writes,{onConflict:'key'});if(u.error)throw u.error;}
-  if(changed.length)refresh([...new Set(changed)]);
+  if(changed.length||feeChanged)refresh([...new Set([...(changed||[]),'nms_fees'].filter(Boolean))]);
   status(true,'Connected + Logged in');
   info('V159 SAFE MERGE + FEE MERGE • '+(reason||'auto')+' • '+writes.length+' cloud row(s) updated');
  }catch(e){console.warn('V159 SAFE MERGE sync:',e);status(true,'Connected + Logged in');info('sync paused • '+String(e.message||e).slice(0,160));}
