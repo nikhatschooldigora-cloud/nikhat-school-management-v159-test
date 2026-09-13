@@ -1256,7 +1256,7 @@ function showPage(p){
     else if(p==='attendance')initAttendance();
     else if(p==='homework')window.v74Render&&window.v74Render();
     else if(p==='exams'){populateReportStudents();renderExamRows();populatePerformanceStudents()}
-    else if(p==='fees'){renderFees();updateFeeDashboard();populateFeeStudents();}
+    else if(p==='fees'){try{window.nmsFeePullNow?.().catch(()=>{});}catch(e){} renderFees();updateFeeDashboard();populateFeeStudents();}
     else if(p==='v65'){initV65();} else if(p==='reports'){initV69Reports();}
     else if(p==='certificates')initCertificates();
     else if(p==='backup'){updateBackupStatus();} else if(p==='systemHealth'){window.initV100Health&&window.initV100Health();}
@@ -2223,7 +2223,7 @@ function status(ok,msg){const t=document.getElementById('v80StatusText'),d=docum
 function info(msg){const e=document.getElementById('v81AutoSyncInfo');if(e)e.textContent='🔄 Auto Sync: '+msg}
 function initClient(){try{const c=cfg();if(!c.url||!c.key||!window.supabase){status(false,'Local Mode — Cloud Setup Required');return false}client=window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}});return true}catch(e){status(false,'Client error');return false}}
 async function session(){if(!client&&!initClient())throw new Error('Cloud configuration नहीं मिली।');const r=await client.auth.getSession();if(r.error)throw r.error;if(!r.data.session)throw new Error('Cloud login required');return r.data.session}
-function cloudKeys(){const a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!k||!k.startsWith(PREFIX)||k===CFG)continue;if(k.startsWith('nms_v82_sync_')||k.startsWith('nms_v82_conflict')||k.startsWith('nms_v129_conflicts')||k.startsWith('nms_v131_')||k==='nms_sync_deleted'||k==='nms_students_backup'||k==='nms_full_autobackup'||k==='nms_remember_login_v77')continue;a.push(k)}return a}
+function cloudKeys(){const a=[];for(let i=0;i<localStorage.length;i++){const k=localStorage.key(i);if(!k||!k.startsWith(PREFIX)||k===CFG)continue;if(k.startsWith('nms_v82_sync_')||k.startsWith('nms_v82_conflict')||k.startsWith('nms_v129_conflicts')||k.startsWith('nms_v131_')||k.startsWith('nms_fee_record_v159_')||k==='nms_sync_deleted'||k==='nms_students_backup'||k==='nms_full_autobackup'||k==='nms_remember_login_v77')continue;a.push(k)}return a}
 function keyOf(o){if(!o||typeof o!=='object')return null;for(const k of ['id','_id','adm','admissionNo','admission','scholarNo','empId','username','key'])if(o[k]!==undefined&&o[k]!==null&&String(o[k])!=='')return k+'='+String(o[k]);return null}
 function merge(a,b){
  if(a===undefined||a===null)return clone(b); if(b===undefined||b===null)return clone(a); if(same(a,b))return clone(a);
@@ -2290,7 +2290,7 @@ function shareCloudSetup(){try{const c=cfg();if(!c.url||!c.key)return alert('प
 function saveCfg(){const url=(document.getElementById('v80Url')?.value||'').trim().replace(/\/$/,'');const key=(document.getElementById('v80Key')?.value||'').trim();if(!url||!key)return alert('Supabase Project URL और anon/publishable key भरें.');localStorage.setItem(CFG,JSON.stringify({url,key}));initClient();status(true,'Connected');return true}
 async function testConnection(){try{await session();status(true,'Connected + Logged in');return true}catch(e){status(false,e.message||'Connection failed');return false}}
 function authInfo(){if(!client)return;client.auth.getSession().then(r=>{if(r.data?.session){status(true,'Connected + Logged in');info('active • '+new Date().toLocaleTimeString())}else status(true,'Connected — Login required')}).catch(()=>status(false,'Connection failed'))}
-async function login(){try{if(!client&&!initClient())return;const email=(document.getElementById('v80Email')?.value||'').trim(),password=document.getElementById('v80Password')?.value||'';if(!email||!password)return alert('Cloud email और password भरें.');const r=await client.auth.signInWithPassword({email,password});if(r.error)throw r.error;status(true,'Connected + Logged in');info('syncing...');schedule('login');alert('Cloud Login successful. Auto Sync चालू है.')}catch(e){alert('Cloud Login failed: '+e.message)}}
+async function login(){try{if(!client&&!initClient())return;const email=(document.getElementById('v80Email')?.value||'').trim(),password=document.getElementById('v80Password')?.value||'';if(!email||!password)return alert('Cloud email और password भरें.');const r=await client.auth.signInWithPassword({email,password});if(r.error)throw r.error;status(true,'Connected + Logged in');info('syncing...');schedule('login');alert('Cloud Login successful. Auto Sync चालू है.');try{window.nmsFeePullNow?.().catch(()=>{})}catch(e){}}catch(e){alert('Cloud Login failed: '+e.message)}}
 async function logout(){if(client)await client.auth.signOut();status(true,'Connected — Logged out');info('login required')}
 function schedule(reason){clearTimeout(timer);timer=setTimeout(()=>sync(reason),500)}
 async function sync(reason){
@@ -2346,7 +2346,7 @@ async function sync(reason){
     writes.push({key:FEE_SYNC_KEY,value:clone(feeMerged),updated_at:new Date().toISOString()});
   }
   const keys=[...new Set([...cloud.keys(),...cloudKeys(),'nms_students','nms_teachers','nms_users_v77','nms_attendance','nms_marks'])]
-    .filter(k=>k!=='nms_sync_deleted'&&k!=='nms_fees'&&k!==FEE_SYNC_KEY);
+    .filter(k=>k!=='nms_sync_deleted'&&k!=='nms_fees'&&k!==FEE_SYNC_KEY&&!String(k).startsWith('nms_fee_record_v159_'));
   for(const k of keys){
    const lv0=read(k), cr=cloud.get(k), cv=cr?cr.value:null; let lv=lv0;
    if(k==='nms_students')lv=stripStudents(lv); else if(k==='nms_teachers')lv=stripTeachers(lv); else if(k==='nms_users_v77')lv=sanitizeUsers(lv);
@@ -2368,11 +2368,97 @@ async function sync(reason){
 async function upload(){return sync('manual upload')}
 async function download(){try{await session();const r=await client.from('school_kv').select('key,value,updated_at').order('key');if(r.error)throw r.error;if(!r.data?.length)return alert('Cloud database खाली है.');if(!confirm('Cloud data को इस device में replace करना है?'))return;applying=true;try{for(const x of r.data){if(x.key===CFG)continue;localStorage.setItem(x.key,typeof x.value==='string'?x.value:JSON.stringify(x.value))}}finally{applying=false}location.reload()}catch(e){alert('Download failed: '+e.message)}}
 async function initializeCloud(){try{await session();const keys=cloudKeys();let n=0;for(const k of keys){const lv=read(k);if(lv!==null){const r=await client.from('school_kv').upsert({key:k,value:clone(lv),updated_at:new Date().toISOString()},{onConflict:'key'});if(r.error)throw r.error;n++}}status(true,'Cloud Initialized • '+n+' items');info('cloud initialized');alert('Cloud initialization हो गया: '+n+' items.')}catch(e){alert('Cloud initialization failed: '+e.message)}}
-function init(){applyConfigFromLink();const u=document.getElementById('v80Url'),k=document.getElementById('v80Key'),c=cfg();if(u)u.value=c.url||'';if(k)k.value=c.key||'';document.getElementById('v80Connect')?.addEventListener('click',saveCfg);document.getElementById('v80Login')?.addEventListener('click',login);document.getElementById('v80Logout')?.addEventListener('click',logout);document.getElementById('v80Upload')?.addEventListener('click',upload);document.getElementById('v80Download')?.addEventListener('click',download);document.getElementById('v122InitializeCloud')?.addEventListener('click',initializeCloud);document.getElementById('v134ShareSetup')?.addEventListener('click',shareCloudSetup);document.getElementById('v123SyncNow')?.addEventListener('click',()=>sync('manual button'));if(initClient())authInfo();setTimeout(()=>sync('startup'),900);window.addEventListener('online',()=>schedule('online'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule('visible')});setInterval(()=>{if(document.visibilityState==='visible'&&!busy)schedule('background')},10000)}
+function init(){applyConfigFromLink();const u=document.getElementById('v80Url'),k=document.getElementById('v80Key'),c=cfg();if(u)u.value=c.url||'';if(k)k.value=c.key||'';document.getElementById('v80Connect')?.addEventListener('click',saveCfg);document.getElementById('v80Login')?.addEventListener('click',login);document.getElementById('v80Logout')?.addEventListener('click',logout);document.getElementById('v80Upload')?.addEventListener('click',upload);document.getElementById('v80Download')?.addEventListener('click',download);document.getElementById('v122InitializeCloud')?.addEventListener('click',initializeCloud);document.getElementById('v134ShareSetup')?.addEventListener('click',shareCloudSetup);document.getElementById('v123SyncNow')?.addEventListener('click',()=>sync('manual button'));if(initClient())authInfo();setTimeout(()=>sync('startup'),900);setTimeout(()=>window.nmsFeePullNow?.().catch(()=>{}),1400);window.addEventListener('online',()=>schedule('online'));document.addEventListener('visibilitychange',()=>{if(!document.hidden)schedule('visible')});setInterval(()=>{if(document.visibilityState==='visible'&&!busy)schedule('background')},10000)}
 // Track user-created local changes. A cloud-applied write is shielded by `applying`.
 (function patchStorage(){if(window.__v131StoragePatched)return;window.__v131StoragePatched=true;const os=Storage.prototype.setItem,or=Storage.prototype.removeItem;Storage.prototype.setItem=function(k,v){os.call(this,k,v);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))schedule('local change')};Storage.prototype.removeItem=function(k){or.call(this,k);if(this===localStorage&&!applying&&k&&k.startsWith(PREFIX)&&k!==CFG&&!k.startsWith('nms_v82_sync_')&&!k.startsWith('nms_v82_conflict')&&!k.startsWith('nms_v129_conflicts')&&!k.startsWith('nms_v131_'))schedule('local delete')}})();
 window.v80Upload=upload;window.v80Download=download;window.v80Test=testConnection;window.v123SyncNow=()=>sync('manual');window.v123RenderSyncConflicts=()=>{};
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
+})();
+</script>
+<script>
+/* V159 FEE SYNC FIX v3 — true per-student cloud mirror + forced fee pull.
+   This is intentionally isolated from the frozen Student Ledger UI. */
+(function(){
+  const CFG='nms_v80_cloud_config', PREFIX='nms_', FEE_PREFIX='nms_fee_record_v159_';
+  function cfg(){try{return Object.assign({url:'',key:''},JSON.parse(localStorage.getItem(CFG)||'{}'))}catch(e){return {url:'',key:''}}}
+  function clone(v){try{return JSON.parse(JSON.stringify(v))}catch(e){return v}}
+  function same(a,b){try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return a===b}}
+  function read(k){try{const x=localStorage.getItem(k);return x===null?null:JSON.parse(x)}catch(e){return null}}
+  function writeLocal(v){try{localStorage.setItem('nms_fees',JSON.stringify(v));return true}catch(e){return false}}
+  function mergeTx(a,b){
+    const m=new Map();
+    for(const t of [...(Array.isArray(a)?a:[]),...(Array.isArray(b)?b:[])]){
+      if(!t||typeof t!=='object')continue;
+      const id=String(t.id||t.receipt||JSON.stringify(t));
+      if(!m.has(id))m.set(id,clone(t));
+      else {const old=m.get(id);m.set(id,{...old,...clone(t),previousAmount:Math.max(Number(old.previousAmount||0),Number(t.previousAmount||0)),currentAmount:Math.max(Number(old.currentAmount||0),Number(t.currentAmount||0)),amount:Math.max(Number(old.amount||0),Number(t.amount||0))})}
+    }
+    return [...m.values()];
+  }
+  function mergeRec(a,b){
+    const A=a&&typeof a==='object'&&!Array.isArray(a)?a:{};
+    const B=b&&typeof b==='object'&&!Array.isArray(b)?b:{};
+    const R=clone(A);
+    R.sessions={...(A.sessions||{})};
+    for(const k of new Set([...Object.keys(A.sessions||{}),...Object.keys(B.sessions||{})])){
+      const x=(A.sessions||{})[k]||{},y=(B.sessions||{})[k]||{},z={...clone(x)};
+      for(const f of new Set([...Object.keys(x),...Object.keys(y)])){
+        if(f==='txns')z.txns=mergeTx(x.txns,y.txns);
+        else if(typeof x[f]==='number'||typeof y[f]==='number')z[f]=Math.max(Number(x[f]||0),Number(y[f]||0));
+        else if(z[f]===undefined)z[f]=clone(y[f]);
+      }
+      R.sessions[k]=z;
+    }
+    R.txns=mergeTx(A.txns,B.txns);
+    for(const f of ['total','manualDue','openingDue','fee'])if(typeof A[f]==='number'||typeof B[f]==='number')R[f]=Math.max(Number(A[f]||0),Number(B[f]||0));
+    for(const k of Object.keys(B))if(R[k]===undefined)R[k]=clone(B[k]);
+    return R;
+  }
+  function makeClient(){const c=cfg();if(!c.url||!c.key||!window.supabase)throw new Error('Cloud configuration नहीं मिली।');return window.supabase.createClient(c.url,c.key,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:false}})}
+  async function pullFees(){
+    const client=makeClient(),ss=await client.auth.getSession();
+    if(ss.error)throw ss.error;if(!ss.data.session)throw new Error('Cloud login required');
+    const r=await client.from('school_kv').select('key,value,updated_at').order('key');
+    if(r.error)throw r.error;
+    const rows=r.data||[], local=(read('nms_fees')||{}), merged={...local};
+    let found=0;
+    for(const row of rows){
+      if(!String(row.key||'').startsWith(FEE_PREFIX))continue;
+      let rec=row.value;try{if(typeof rec==='string')rec=JSON.parse(rec)}catch(e){rec=null}
+      if(!rec||typeof rec!=='object')continue;
+      const sid=String(rec.studentId||String(row.key).slice(FEE_PREFIX.length));
+      merged[sid]=mergeRec(merged[sid],rec);found++;
+    }
+    /* Legacy rows remain a migration source, but never replace the merged records. */
+    for(const row of rows){
+      if(row.key!=='nms_fees')continue;
+      let v=row.value;try{if(typeof v==='string')v=JSON.parse(v)}catch(e){v=null}
+      if(v&&typeof v==='object'&&!Array.isArray(v)){
+        for(const sid of Object.keys(v))merged[sid]=mergeRec(merged[sid],v[sid]);
+      }
+    }
+    if(!same(merged,local)){if(!writeLocal(merged))throw new Error('Fee data local storage में save नहीं हो पाया');window.dispatchEvent(new CustomEvent('nms:feeSyncUpdated'));}
+    /* Publish every local fee record separately. A small row per student avoids one large blob and lets both devices merge independently. */
+    const writes=[];
+    for(const sid of Object.keys(merged)){
+      const rec=merged[sid];if(!rec||typeof rec!=='object')continue;
+      const payload={...clone(rec),studentId:String(sid)};
+      writes.push({key:FEE_PREFIX+String(sid),value:payload,updated_at:new Date().toISOString()});
+    }
+    if(writes.length){
+      const u=await client.from('school_kv').upsert(writes,{onConflict:'key'});
+      if(u.error)throw u.error;
+    }
+    return {records:found,total:Object.keys(merged).length};
+  }
+  window.nmsFeePullNow=async function(){
+    try{
+      const r=await pullFees();
+      const el=document.getElementById('v81AutoSyncInfo');if(el)el.textContent='🔄 Fee Sync: '+r.total+' student records merged';
+      return r;
+    }catch(e){console.error('Fee Sync v3:',e);const el=document.getElementById('v81AutoSyncInfo');if(el)el.textContent='⚠️ Fee Sync: '+(e.message||e);throw e;}
+  };
+  window.nmsFeeSyncInit=function(){try{window.nmsFeePullNow().catch(()=>{})}catch(e){}}
 })();
 </script>
 <script>
